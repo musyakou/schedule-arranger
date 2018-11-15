@@ -2935,23 +2935,65 @@ Logged in as soichiro_yoshimura@dwango.co.jp
 のように表示されればログイン成功です。
 次は、
 
-heroku create
+heroku create (好きなサーバ名)
 と入力して、 Heroku のサーバーを作成します。
-・最後に作成されたサーバーの URL が表示されると思います。
+最後に作成されたサーバーの URL が表示されると思います。
 この URL をメモしておきましょう。
 
+・次は Heroku で利用する PostgreSQL のデータベースを作成します。下のコマンドうつ。
+heroku addons:create heroku-postgresql:hobby-dev
+
+・それでは git push コマンドで Heroku にデプロイしてみましょう。
+git push heroku master（-2017:master）
+少し時間が掛かりますが、最後に、
+
+remote: Verifying deploy.... done.
+To https://git.heroku.com/xxx-xxxxxxx-XXXXXX.git
+ * [new branch]      master -> master
+以上のように表示されればデプロイは完了です。
+
+・先ほどメモしておいた URL に、 Chrome でアクセスしてみましょう。
+ここでは、ひとまずトップページが表示できれば問題ありません。
+今回これ↓
+https://obscure-inlet-59730.herokuapp.com/
 
 
+・そして次は、 GitHub 認証のために、本番の環境を GitHub のアプリケーションとして登録します。
+GitHub のアプリケーションの登録は、コールバックするための URL やサイトの説明の都合上、
+開発用のものと別なものを利用する必要があるのです。
 
+GitHub にログイン後、https://github.com/settings/applications/new にアクセスし、
 
+Application name を、予定調整くん
+Homepage URL を、https://xxx-xxxxxxx-XXXXXX.herokuapp.com/
+Application description を、GitHub認証を利用して予定を調整してくれるアプリケーション
+Authorization callback URL を、 https://xxx-xxxxxxx-XXXXXX.herokuapp.com/auth/github/callback
+以上の通りに設定し、アプリケーション登録をしてください。
+もちろん URL は、先ほど Heroku で作成した自分のアプリケーションのものに置き換えてください。
 
+・次に、 本番環境の URL と GitHub のアプリケーションの 
+Client ID と Client Secret を Heroku の環境変数として登録していきます。
 
+heroku config:set HEROKU_URL='https://xxx-xxxxxxx-XXXXXX.herokuapp.com/'
+heroku config:set GITHUB_CLIENT_ID='000000000000000000'
+heroku config:set GITHUB_CLIENT_SECRET='000000000000000000000000000000000'
+以上のようにコンソールに入力して登録します・
 
+もちろん、先ほど自分がメモした URL、 Client ID と Client Secret を利用して登録してください。
 
+・そして、 app.js を編集し、この環境変数を利用できるように修正します。
 
+ });
 
+ var GitHubStrategy = require('passport-github2').Strategy;
+-var GITHUB_CLIENT_ID = '2f831cb3d4aac02393aa';
+-var GITHUB_CLIENT_SECRET = '9fbc340ac0175123695d2dedfbdf5a78df3b8067';
++var GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || '2f831cb3d4aac02393aa';
++var GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || '9fbc340ac0175123695d2dedfbdf5a78df3b8067';
 
-
+ passport.serializeUser(function (user, done) {
+   done(null, user);
+以上で、 Client ID と Client Secret として環境変数で指定されたものが使われるようになりました。
 
 
 
