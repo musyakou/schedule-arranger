@@ -2995,6 +2995,35 @@ heroku config:set GITHUB_CLIENT_SECRET='000000000000000000000000000000000'
    done(null, user);
 以上で、 Client ID と Client Secret として環境変数で指定されたものが使われるようになりました。
 
+ passport.use(new GitHubStrategy({
+   clientID: GITHUB_CLIENT_ID,
+   clientSecret: GITHUB_CLIENT_SECRET,
+-  callbackURL: 'http://localhost:8000/auth/github/callback'
++  callbackURL: process.env.HEROKU_URL ? process.env.HEROKU_URL + 'auth/github/callback' : 'http://localhost:8080/auth/github/callback'
+ },
+以上が、コールバックして GitHub から情報を戻す URL となります。
+
+・では以上の内容を反映するため、再度 Heroku にデプロイを行います。
+
+git commit -am "Herokuの環境変数を利用できるように修正"
+git push heroku master（-2017:master）
+これらの git コマンドを実行し、
+
+remote: Verifying deploy... done.
+と表示されたら終了です。
+メモしてある Heroku の URL にアクセスして、この「予定調整くん」の要件である、
+
+予定を作れる
+予定に候補が作れる
+予定の候補に対して出欠を編集できる
+予定に対してコメントが編集できる
+予定を削除できる
+予定を編集できる
+これらがちゃんと動作するかを試してみましょう。
+この検証が終われば「予定調整くん」は完成です。
+
+
+
 
 
 
