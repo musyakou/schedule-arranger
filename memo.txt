@@ -1,0 +1,2958 @@
+Web アプリケーション　作成について　参考ディレクトリ　~/workspace/schedule-arranger
+
+・要件定義をする
+　機能要件{予定が作られる, 候補が作られる, 出欠編集, コメント編集, 削除できる等}
+　非機能要件{セキュリティや機能に付随する}
+
+　用語定義　周知
+　　ユーザー: user
+　　予定: schedule...等
+
+・RDBのエンティティ　データモデルを考える
+  ユーザーに対し予定は"1対多"等　リレーションシップの図の様に。
+
+・URI設計
+　{トップページ, 作った予定の一覧表示ページ, 作成ページ, 出欠表ページ, コメントページ等}
+...AJAXを採用　少しの通信で良い。　⇒websocket程の通信はいらない。
+パス　メソッド
+  /　 GET   トップページ
+　/schedules/new   GET   
+　/schedules/:scheduleId
+  /logout 等
+
+  APIのURI
+  /schedules  POST
+  /schedules/:scheduleId?delete=1 logoutのリクエストをAJAXで
+　表示はしないイメージPOSTでデータを投げる。
+
+ーーここまでインターフェイス設計ーー
+
+・モジュール設計
+　/routes/logout.js
+ /etc..etc
+
+　データモデル一覧
+M　モデル　modules/user.js 　　ユーザーの定義永続化、RDB postgresとシンクアライズで行う。
+V　eiws   これはモデルに依存していてテンプレートエンジン(jade)の編集をしてもモデルは編集する必要なし。
+C　コントロール　フレームワークexpress
+
+~~webアプリケーションの公開
+　　Herokuへアップしていく(vps等)
+
+Githubへログイン
+ ・github認証を使う　認証を使うことによってセキュリティや管理が楽になる。
+ 　googleやニコニコ動画認証などなど。
+ ・アプリケーション登録を行う。
+
+ https://github.com/settings/applications/new にアクセスし、
+sample↓
+　Application name を、予定調整くん（開発用）
+　Homepage URL を、http://localhost:8080/
+　Application description を、GitHub 認証を利用して予定を調整してくれるアプリケシーション
+　Authorization callback URL を、 http://localhost:8080/auth/github/callback
+　以上に設定してアプリケーション登録。
+
+※ここでcallbackアドレスを8080番にしたらapp.jsでも8080番に変えておく必要あり。
+client ID
+client keyを取得メモする。
+
+・expressのひな形を作成, 必要なnpmパッケージをインストールする。
+　consoleで　workspace
+    express schedule-arranger　ディレクトリが作成されるひな形も。
+  cd schedule-arranger
+  npm install
+PORT=8080 npm startコマンドで
+  サーバーが立つか確認　http://localhost:8080
+
+・echo "node_modules/" > .gitignore でgit add　したときに負荷がかからないようにする。
+  git init
+  git add .
+  git commit -m ""
+  ここまででリポジトリができているのかな。pushしたらかな。
+
+・helmetを使い、検証⇒NetworkのX-poweered By Expressを消す。
+  npm install helmet@1.1.0 --save
+  app.jsへ　↓
+  var helmet = require('helmet');
+  app.use(helmet());　を追記。
+
+・モジュールのjavascriptファイルを作成しておく。
+sample↓
+touch routes/login.js
+touch routes/logout.js
+touch routes/schedules.js
+touch routes/availabilities.js
+touch routes/comments.js
+
+・app.jsにメモしたgithub認証のID、Keyを置き換える。
+var GITHUB_CLIENT_ID = '    ';
+var GITHUB_CLIENT_SECRET '    '
+
+app.use(express.static～の下へ
+app.use(session({ secret: 'd1f08be8f0c8b33e', resave: false, saveUninitialized: false }));
+app.use(passport.initialize());
+app.use(passport.session());
+
+node -e "console.log(require('crypto').randomBytes(8).toString('hex'));"　このコマンドで
+生成されたkeyを上のsecret:'   'へ入れる。
+これでpassportの設定が完了。
+requireでモジュールを読み込みapp.jsで使用するイメージ。
+
+・app.jsへlogin と logout のルーター実装。
+var routes = require('./routes/index');
+-var users = require('./routes/users');
++var login = require('./routes/login');
++var logout = require('./routes/logout');
+
+・次に passport のオブジェクトを利用するハンドラを実装。app.jsへ追記。
+ app.use('/', routes);　ここの下へ　追記する場所気を付ける。
+-app.use('/users', users);
++app.use('/login', login);
++app.use('/logout', logout);
++
++app.get('/auth/github',
++  passport.authenticate('github', { scope: ['user:email'] }),
++  function (req, res) {
++});
++
++app.get('/auth/github/callback',
++  passport.authenticate('github', { failureRedirect: '/login' }),
++  function (req, res) {
++    res.redirect('/');
++});
+実際にlogin logoutされた時に実行。github認証が済んだらトップページへリダイレクトのような記述。
+
+・加えて、 routes/login.js を以下のように実装、
+
+routes/login.js
+'use strict';
+const express = require('express');
+const router = express.Router();
+
+router.get('/', (req, res, next) => {
+  res.render('login', { user: req.user });
+});
+
+module.exports = router;
+
+・routes/logout.js を以下のように実装します。
+
+routes/logout.js
+'use strict';
+const express = require('express');
+const router = express.Router();
+
+router.get('/', (req, res, next) => {
+  req.logout();
+  res.redirect('/');
+});
+
+module.exports = router;
+
+・views/login.jade を以下のように実装
+
+extends layout
+
+block content
+  a(href="/auth/github") GitHubでログイン
+  if user
+     p 現在 #{user.username} でログイン中
+
+もう不要になる routes/users.js は削除     
+
+・PORT=8080 npm start
+以上で起動して、http://localhost:8080/login にアクセスして、ログインできるかを試してください。
+
+また、http://localhost:8080/login に再度アクセスしてユーザー名が表示されていることも確認してください
+
+github ページでOauth認証をする。 nameでログイン中となるかも確認。/loginへアクセス
+
+・Router オブジェクトをテストする
+ここまで実装できたところでこの内容をテストするテストコードを実装していきます。
+
+まずはテストに必要なモジュールをインストールします。
+
+npm install mocha@3.2.0 --save-dev
+npm install supertest@1.2.0 --save-dev
+npm install passport-stub@1.1.1 --save-dev
+　ーーsupertest は、 Express の Router オブジェクトをテストするモジュールです。
+
+・モカを呼び出してテストするために
+
+package.json を以下のように実装して、npm test コマンドが利用できるようにしましょう。
+
+   "version": "0.0.0",
+   "private": true,
+   "scripts": {
+-    "start": "node ./bin/www"
++    "start": "node ./bin/www",
++    "test": "node_modules/.bin/mocha"
+   },
+   引き続き mocha のためのテストコードを実装します。
+
+mkdir test
+touch test/test.js
+
+・test/test.js を以下のように実装してみましょう。
+
+test/test.js
+'use strict';
+const request = require('supertest');
+const app = require('../app');
+
+describe('/login', () => {
+
+  it('ログインのためのリンクが含まれる', (done) => {
+    request(app)
+      .get('/login')
+      .expect('Content-Type', 'text/html; charset=utf-8')
+      .expect(/<a href="\/auth\/github"/)
+      .expect(200, done);
+  });
+
+});
+
+・npm test が成立すればOK　わざとtest.js記述を間違えてテスト失敗もしておく。
+
+・次に、ログインした時には /login にユーザー名が表示されることをテストしてみます。
+passport-stub を利用して、 test/test.js を以下のように実装してみてください。
+
+ 'use strict';
+ const request = require('supertest');
+ const app = require('../app');
++const passportStub = require('passport-stub');
+
+ describe('/login', () => {
++  before(() => {
++    passportStub.install(app);
++    passportStub.login({ username: 'testuser' });
++  });
++
++  after(() => {
++    passportStub.logout();
++    passportStub.uninstall(app);
++  });
+
+   it('ログインのためのリンクが含まれる', (done) => {
+     request(app)
+
+あともう一つ、
+
+       .expect(200, done);
+   });
+
++  it('ログイン時はユーザー名が表示される', (done) => {
++    request(app)
++      .get('/login')
++      .expect(/testuser/)
++      .expect(200, done);
++  });
+を実装。
+
+      以上の実装は、 describe 以下のテストを実行する前と後に実行したい処理を記述しています。
+
+      before 関数で記述された処理は describe 内のテスト前に、 after 関数で記述された処理は describe 内のテストの後に実行されます。
+      これは mocha の機能で、他にも各 it 内のテストの前後に実行させる処理も記述できます。
+
+      ちなみにここでは、テストの前に passportStub を app オブジェクトにインストールし、 testuser というユーザー名のユーザーでログインしています。
+      テストの後は、ログアウトして、アンインストールする処理を実行しています。
+
+      it('ログイン時はユーザー名が表示される', (done) => {
+          request(app)
+            .get('/login')
+            .expect(/testuser/)
+            .expect(200, done);
+        });
+以上のコードでは、 /login にアクセスした後、その HTML の body 内に、 testuser という文字列が含まれることをテストしています。
+
+・これまではlogin時であり、test.jsに下記も追記する。/logoutのリダイレクトの挙動ができる。
++describe('/logout', () => {
++  it('/ にリダイレクトされる', (done) => {
++    request(app)
++      .get('/logout')
++      .expect('Location', '/')
++      .expect(302, done);
++  });
++});
+これで/logout時/(トップページ)へリダイレクトされることが確認できる。
+
+・databaseモデルを定義。tableを作っていく。 postgreSQLやMySQL等。
+sample↓
+　user, schedule, candidate, availability, comment..
+GitHub の認証の後、 req.user オブジェクトにはどのようなプロパティがあるのでしょうか。
+passport-github の ソースコードを確認すると、
+/**
+ * Retrieve user profile from GitHub.
+ *
+ * This function constructs a normalized profile, with the following properties:
+ *
+ *   - `provider`         always set to `github`
+ *   - `id`               the user's GitHub ID
+ *   - `username`         the user's GitHub username
+ *   - `displayName`      the user's full name
+ *   - `profileUrl`       the URL of the profile for the user on GitHub
+ *   - `emails`           the user's email addresses
+ *
+ * @param {String} accessToken
+ * @param {Function} done
+ * @api protected
+ */
+コメントにより以上のようなプロパティが、req.user オブジェクトに存在していることがわかります。
+こういったことを参考に。
+GitHub のユーザー ID である id　　　　　数値　主キー
+GitHub のユーザー名である username　　　文字列
+にしようと決める。
+
+・sequalize と PostgreSQL 関連モジュールをインストール
+npm install sequelize@3.25.0 --save
+npm install pg@6.1.0 --save
+npm install pg-hstore@2.3.2  --save
+
+・PostgreSQL のデータベースも作る
+sudo su - postgres
+psql
+CREATE DATABASE schedule_arranger;
+　一旦セッションを終了し、（\q, exit）
+
+・user のモデルを実装するためのファイルを作成
+mkdir models
+touch models/sequelize-loader.js
+touch models/user.js
+　複数のモデルをそれぞれ別のファイルに記述したい。　sequelizeを別にした。
+
+・models/sequelize-loader.js を以下のように　ここでDBとの関係を作ってると思う。
+'use strict';
+const Sequelize = require('sequelize');
+const sequelize = new Sequelize(
+  'postgres://postgres:postgres@localhost/schedule_arranger',
+  { logging: true });
+
+module.exports = {
+  database: sequelize,
+  Sequelize: Sequelize
+};
+
+・次に先程のデータモデル通りに、 sequalize の記法の定義に沿って、 models/user.js を以下のように実装しましょう。
+なおそれぞれのデータモデルとテーブルの対応は、
+データモデルの実装	テーブル名
+sample↓ これはコマンドではないよ。
+models/user.js　　　　　　　　　	users
+models/user.js	　　　　　　schedules
+models/candidate.js	　　　　candidates
+models/availability.js　　	availabilities
+models/comment.js	　　　　　　comments
+のように実装していきます。これによってユーザーのデータモデルは以下のようになります。
+・models/user.jsに
+'use strict';
+const loader = require('./sequelize-loader');
+const Sequelize = loader.Sequelize;
+
+const User = loader.database.define('users', {
+  userId: {
+    type: Sequelize.INTEGER,
+    primaryKey: true,
+    allowNull: false
+  },
+  username: {
+    type: Sequelize.STRING,
+    allowNull: false
+  }
+}, {
+    freezeTableName: true,
+    timestamps: false
+  });
+
+module.exports = User;
+こうなります。 userId は Sequelize.INTEGER というデータ型、username は Sequelize.STRING というデータ型にし、
+どちらも、 null 値を許可しない設定にしました。なおデータモデルの sync 関数が呼ばれた際に、
+これらの設定にもとづいて SQL の CREATE TABLE が実行され、データベースとの対応が取れるようになります。
+これで user の実装は完了です。
+
+・予定のデータモデリング（RDB）
+schedule 　　　　　　　の属性名	形式	内容
+scheduleId	　　　　　数値	予定 ID、主キー、連番で付けられる
+scheduleName	　　　　文字列	予定名
+memo	　　　　　　　　文字列	メモ
+createdBy	　　　　　　数値　作成者、ユーザー ID
+
+・セキュリティの問題を考える
+/schedules/:scheduleId　には関係者以外には秘密にしたいことがあるかもしれない。
+連番の予定IDを用いたらほかの予定のURLを推測されてしまう。
+そこで　⇒　UUIDをつかう。　universally unique identifier　絶対重複しないID。
+nodeでもnode-uuid というモジュールが利用可能。
+fd70bde2-504f-4ae9-95fd-46727b7d224b
+以上のような形式のランダムな16進数の文字列が生成される。
+　これを振るとランダムになり、昇順等厳しいから更新日時の降順で予定が並ぶように、更新日時も属性として加えるよう対策。
+　加味したのがこちら↓
+schedule の属性名	　　　　形式	内容
+scheduleId	　　　　　　　UUID	予定 ID、主キー
+scheduleName	　　　　　　文字列	予定名
+memo	　　　　　　　　　　文字列	メモ
+createdBy	　　　　　　　　数値	作成者、ユーザー ID
+updatedAt	　　　　　　　　日時	更新日時
+
+・models/schedule.js  を下記の様に実装。touch 等で作成する。
+'use strict';
+const loader = require('./sequelize-loader');
+const Sequelize = loader.Sequelize;
+
+const Schedule = loader.database.define('schedules', {
+  scheduleId: {
+    type: Sequelize.UUID,
+    primaryKey: true,
+    allowNull: false
+  },
+  scheduleName: {
+    type: Sequelize.STRING,
+    allowNull: false
+  },
+  memo: {
+    type: Sequelize.TEXT,
+    allowNull: false
+  },
+  createdBy: {
+    type: Sequelize.INTEGER,
+    allowNull: false
+  },
+  updatedAt: {
+    type: Sequelize.DATE,
+    allowNull: false
+  }
+}, {
+    freezeTableName: true,
+    timestamps: false,
+    indexes: [
+      {
+        fields: ['createdBy']
+      }
+    ]
+  });
+
+module.exports = Schedule;
+
+上で型を指定、INDEXもつけている。⇒　fields: ['createdBy']
+
+・次は、 candidate の属
+candidate の属性名　　　　	形式	　　内容
+candidateId　　　　　　　　	数値	　候補日程 ID、主キー、連番で付けられる
+candidateName	　　　　　　　文字列	候補日程名
+scheduleId　　　　　　　　	UUID　　関連する予定 ID
+
+ touch models/candidate.js　で同じようにDBのテーブルごとにjsを作っていくような感じ。すべてmodels
+
+・次は availabilitiy の属性について考えてみましょう。
+出欠のデータは
+候補日程 ID
+ユーザー ID
+この 2 つによって一意になるはずです。
+あとは、「欠席」・「わからない」・「出席」で表される出欠内容、
+そして、検索性を高めるために予定 ID を一緒にいれておけばよさそうです。
+
+availabilitiy の属性名	　　　形式	内容
+candidateId	　　　　　　　　　数値	候補日程 ID、主キー
+userId	　　　　　　　　　　　数値	GitHub のユーザー ID、主キー
+availabilitiy	　　　　　　　　数値	出欠 可否を数値で。
+scheduleId	　　　　　　　　　UUID	関連する予定 ID
+
+複合主キーがある。1に対して2が二つあってはいけない。　1に対して2があってもいいし、3があってもいい。という条件。
+
+・上を考えたらtouch models/availability.js　で実装。
+'use strict';
+const loader = require('./sequelize-loader');
+const Sequelize = loader.Sequelize;
+
+const Availability = loader.database.define('availabilities', {
+  candidateId: {
+    type: Sequelize.INTEGER,
+    primaryKey: true,
+    allowNull: false
+  },
+  userId: {
+    type: Sequelize.INTEGER,
+    primaryKey: true,
+    allowNull: false
+  },
+  availability: {
+    type: Sequelize.INTEGER,
+    allowNull: false,
+    defaultValue: 0
+  },
+  scheduleId: {
+    type: Sequelize.UUID,
+    allowNull: false
+  }
+}, {
+    freezeTableName: true,
+    timestamps: false,
+    indexes: [
+      {
+        fields: ['scheduleId']
+      }
+    ]
+  });
+
+module.exports = Availability;
+　　scheduleIdがINDEXに。検索が多いだろうと。
+
+・コメントもモデリング。
+予定 ID
+ユーザー ID
+以上ふたつで複合主キーを設定すれば良さそうです。
+またコメントの内容も属性として必要になりそうですね。
+これらを考慮すると、
+
+comment の属性名	　　　　　形式	内容
+scheduleId	　　　　　　　　UUID	関連する予定 ID、主キー
+userId	　　　　　　　　　　数値	GitHub のユーザー ID、主キー
+comment	　　　　　　　　　　文字列	コメント
+一つの予定に一人しかできないから複合主キーで特定ができる（primaryになる。)
+
+・touch models/comment.js　同じように実装。
+'use strict';
+const loader = require('./sequelize-loader');
+const Sequelize = loader.Sequelize;
+
+const Comment = loader.database.define('comments', {
+  scheduleId: {
+    type: Sequelize.UUID,
+    primaryKey: true,
+    allowNull: false
+  },
+  userId: {
+    type: Sequelize.INTEGER,
+    primaryKey: true,
+    allowNull: false
+  },
+  comment: {
+    type: Sequelize.STRING,
+    allowNull: false
+  }
+}, {
+    freezeTableName: true,
+    timestamps: false
+  });
+
+module.exports = Comment;
+
+・もちろんこの情報も、 scheduleId で大量のデータの中から検索するため、 
+scheduleId のインデックスを作成する必要があるはずです。
+しかし、ここではインデックスを作成する必要がありません。
+なぜなら scheduleId と userId で複合主キーを作成しており、
+その主キーの作成順番が、scheduleId > userId という順番となっているためです。
+RDB では主キーには自動的にインデックスが構築されます。
+複合主キーで作成された主キーのインデックスは、
+途中までデータを検索する順番が一緒であればそれをインデックスとして使うことができます。
+そのため上の例では、 scheduleId のインデックスは別途作成しなくても主キーのインデックスを
+代わりに用いることができるのです。
+以上でモデルの実装は終了となります。
+
+・なおこの sequelize では、モデルを使ってエンティティ同士の関係を定義しておくことで、
+後で自動的に RDB 上でテーブルの結合をしてデータを取得することができます。
+その機能を使えるようにデータを読み込んでみましょう。
+app.js を以下の変更のように実装してみてください。　
+INNER JOIN等自分でやる必要がないということかっ！
+
+ var session = require('express-session');
+ var passport = require('passport');
+
++// モデルの読み込み
++var User = require('./models/user');
++var Schedule = require('./models/schedule');
++var Availability = require('./models/availability');
++var Candidate = require('./models/candidate');
++var Comment = require('./models/comment');
++User.sync().then(() => {
++  Schedule.belongsTo(User, {foreignKey: 'createdBy'});
++  Schedule.sync();
++  Comment.belongsTo(User, {foreignKey: 'userId'});
++  Comment.sync();
++  Availability.belongsTo(User, {foreignKey: 'userId'});
++  Candidate.sync().then(() => {
++    Availability.belongsTo(Candidate, {foreignKey: 'candidateId'});
++    Availability.sync();
++  });
++});
++
+ var GitHubStrategy = require('passport-github2').Strategy;
+ var GITHUB_CLIENT_ID = '2f831cb3d4aac02393aa';
+ var GITHUB_CLIENT_SECRET = '9fbc340ac0175123695d2dedfbdf5a78df3b8067';
+  モデル読み込んでUser.sync().then(() => {ここでのみ同期的にする　それが終わったら下の処理。
+  依存関係を作っているが同時にテーブル結合もやっている。便利。
+　accessでいうところ空のテーブルに型をしていしてクエリ作っておいてデータがあとで入るようなイメージか。
+どうでもよいが、検索で^\+で正規表現で+をエスケープして空白にできる。すべて置換。
+
+・一回サーバー起動して、テーブル作ってくれるか、確認。
+PORT=8080 npm start でテーブルが作成される。ログ大量にでる。最悪消してもっかいやってみる。
+しかしながらディレクトリのname同じように見えたがコピペしたらできた。
+やはりエラーログをよくよく観察する必要がある。
+　sudo su - postgres
+　psql
+　drop database schedule_arranger; create database schedule_arranger;
+
+・DBへユーザ情報保存するために
+app.js を以下の変更差分のように実装してください。
+     process.nextTick(function () {
+-      return done(null, profile);
++      User.upsert({
++        userId: profile.id,
++        username: profile.username
++      }).then(() => {
++        done(null, profile);
++      });
+　PORT=8080 npm start で /loginへ飛び、githubログインし、エラーなくExecuting (default):～がコンソールに返ればおけ。
+データベース見てみて、確認しよう。　
+補足↓　
+ここでは、 User モデルに対して、 取得されたユーザー ID とユーザー名を User のテーブルに保存しています。
+upsert 関数は、 INSERT または UPDATE を行うという意味の造語、UPSERT を行う関数です。
+主キーで識別されるデータがない場合にはデータを挿入し、ある場合には渡されたデータを元に更新を行ってくれます。
+なおこの CREATE OR REPLACE FUNCTION という SQL 文は、データベースの内部に関数を作成する PostgreSQL の機能です。
+UPSERT の機能を実現するためにここでは利用されています。
+内部的には INSERT 文を実行し、もし失敗する場合は引き続いて UPDATE 文を実行するという関数が 
+PostgreSQL 内で定義されたあと、実行されています。
+以上でこのモデルの実装とユーザーの保存の実装を完了
+
+・開発の準備
+トップ画面にログインへのリンクを作成
+ログイン時にしか表示されない予定作成フォームを作成
+予定作成フォームから送られた情報を保存
+トップ画面に自分が作った予定一覧を作成
+予定と出欠表の表示画面を作成
+
+リンクを作成するだけですが、 views/index.jade を以下のように実装します。
+ block content
+   h1= title
+   p Welcome to #{title}
++  div
++    if user
++      a(href="/logout") #{user.username} をログアウト
++    else
++      a(href="/login") ログイン
+  補足、block content はbodyだと思っておいてよい。　bodyの中にいれてくれますよ。
+
+・このテンプレートには user は割り当てられてないので、 routes/index.js を変更。 上のuser変数を依存関係に。
+ /* GET home page. */
+ router.get('/', function(req, res, next) {
+-  res.render('index', { title: 'Express' });
++  res.render('index', { title: 'Express', user: req.user });
+ });
+
+・予定作成フォームを作っていきます。
+touch views/new.jade　以下のように実装。　いわゆるテンプレート。
+extends layout
+
+block content
+  form(method="post", action="/schedules")
+    div
+      h5 予定名
+      input(type="text" name="scheduleName")
+    div
+      h5 メモ
+      textarea(name="memo")
+    div
+      h5 候補名 (改行して複数入力してください)
+      textarea(name="candidates")
+    button(type="submit") 予定をつくる
+補足　POST通信のときにschedulesを作成してくれる。HTMLと同等。
+
+※　layout.jadeにHTMLの全体像がある。そこでbodyにblock contentを
+入れているからblock contentがbodyのようなものと認識。
+ここでstylesheetと連携を記載している。　headもここにある　（metaタグもここのようなもの）
+
+・routes/schedules.js を以下のように実装します。
+routes/schedules.js
+'use strict';
+const express = require('express');
+const router = express.Router();
+const authenticationEnsurer = require('./authentication-ensurer');
+
+router.get('/new', authenticationEnsurer, (req, res, next) => {
+  res.render('new', { user: req.user });
+});
+
+router.post('/', authenticationEnsurer, (req, res, next) => {
+  console.log(req.body); // TODO 予定と候補を保存する実装をする
+  res.redirect('/');
+});
+
+module.exports = router;
+
+補足　/newのGETがきたらjadeへ渡す。authenticationEnsurerを定義してるのはgithubログインしていないとアクセス
+できないようにするため。　req.userを渡さない実装もある。
+new　ページのときにユーザ名とか出てくる意味あるの？っていう意味。
+
+まずは POST で受け取った情報を console.log 関数を使って標準出力表示するだけにとどめています。なおここでは、
+const authenticationEnsurer = require('./authentication-ensurer');
+という認証を確かめるハンドラ関数　authentication-ensurer.js がある前提で実装してみました。 
+この、認証をしているかチェックする関数はさまざまな Router オブジェクトから利用したいためです。
+
+・routes/authentication-ensurer.js を作成して追記。
+'use strict';
+
+function ensure(req, res, next) {
+  if (req.isAuthenticated()) { return next(); }
+  res.redirect('/login');
+}
+
+module.exports = ensure;
+
+githubログインしていたらnextを返す。していなければloginページへリダイレクトされます。
+されていたら　new.jadeを実行。
+
+・routes/schedules.js をルーターとして Application オブジェクトに登録しておきましょう。 app.js を以下のように。
+var login = require('./routes/login');
+ var logout = require('./routes/logout');
++var schedules = require('./routes/schedules');
+
+以上でモジュールを読み込み、
+ app.use('/', routes);
+ app.use('/login', login);
+ app.use('/logout', logout);
++app.use('/schedules', schedules);
+
+・http://localhost:8000/schedules/new にアクセスでログインページ出るか確認。まだこの状態。
+
+・ここから受け取った情報を保存していきますが、その前に一つしなくてはならないことがあります。
+それは、前回紹介した UUID を生成するためのライブラリのインストールです。
+UUID は被らないランダム ID で、ライブラリを使っていくらでも生成することができます。
+・npm install node-uuid@1.4.7 --save
+
+・routes/schedules.js を
+const express = require('express');
+ const router = express.Router();
+ const authenticationEnsurer = require('./authentication-ensurer');
++const uuid = require('node-uuid');
++const Schedule = require('../models/schedule');
++const Candidate = require('../models/candidate');
+
+ router.get('/new', authenticationEnsurer, (req, res, next) => {
+   res.render('new', { user: req.user });
+ });
+
+ router.post('/', authenticationEnsurer, (req, res, next) => {
+-  console.log(req.body); // TODO 予定と候補を保存する実装をする
+-  res.redirect('/');
++  const scheduleId = uuid.v4();
++  const updatedAt = new Date();
++  Schedule.create({
++    scheduleId: scheduleId,
++    scheduleName: req.body.scheduleName.slice(0, 255),
++    memo: req.body.memo,
++    createdBy: req.user.id,
++    updatedAt: updatedAt
++  }).then((schedule) => {
++    const candidateNames = req.body.candidates.trim().split('\n').map((s) => s.trim().slice(0, 255));
++    const candidates = candidateNames.map((c) => { return {
++      candidateName: c,
++      scheduleId: schedule.scheduleId
++    };});
++    Candidate.bulkCreate(candidates).then(() => {
++          res.redirect('/schedules/' + schedule.scheduleId);
++    });
++  });
+ });
+
+なげえ。
+trimで空白取り除いてる。
+candidatesは候補日,くそでかい文字列　改行があるたびに　配列にいれている。
+bulkCreateは複数作ったobjectをいっきにDBへ入れてくれる。DBへ入れる処理。
+.slice(0, 255)を追記。255を超えるとエラー吐くので切捨てするようにしている。
+後回しにして処理しようとするのを防ぐため、then関数を入れている。入れてからリダイレクトしてねとかそういうため。
+これを未来を予想してthenをしているからpromiseという　promiseとは非同期に実行される未来の結果を表すオブジェクト。
+
+・http://localhost:8000/schedules/new　へ　
+サンプル入力してDBへ入力されているか確認。
+
+・トップ画面に自分が作成した予定の一覧を作成。DBから取ってきて表示画面を作成
+views/index.jade を以下のように
+   p Welcome to #{title}
+   div
+     if user
+-      a(href="/logout") #{user.username} をログアウト
++      div
++        a(href="/logout") #{user.username} をログアウト
++      div
++        a(href="/schedules/new") 予定を作る
++      - var hasSchedule = schedules.length > 0
++      if hasSchedule
++        h3 あなたの作った予定一覧
++        table(class="table")
++          tr
++            th 予定名
++            th 更新日時
++          each schedule in schedules
++            tr
++              td
++                a(href="/schedules/#{schedule.scheduleId}") #{schedule.scheduleName}
++              td #{schedule.updatedAt}
+     else
+-      a(href="/login") ログイン
++      div
++       a(href="/login") ログイン
+
+jadeで変数宣言- var　ここで予定があればルーターへ渡して予定があれば表示。ここでif。eachでぐるぐるまわす。
+#{}で変数を使う。
+
+・ではテンプレートに合うように、routes/index.js で、
+自分の作った予定の配列を schedules プロパティに割り当てるように　デフォルトは全部消してはっつける。
+'use strict';
+const express = require('express');
+const router = express.Router();
+const Schedule = require('../models/schedule');
+
+/* GET home page. */
+router.get('/', (req, res, next) => {
+  const title = '予定調整くん';
+  if (req.user) {
+    Schedule.findAll({
+      where: {
+        createdBy: req.user.id
+      },
+      order: '"updatedAt" DESC'
+    }).then((schedules) => {
+      res.render('index', {
+        title: title,
+        user: req.user,
+        schedules: schedules
+      });
+    });
+  } else {
+    res.render('index', { title: title, user: req.user });
+  }
+});
+
+module.exports = router;
+
+徐々にWUIが完成されていることを確認。
+
+・touch views/schedule.jade　を作成以下のように。　schedule作成のWUI画面レイアウトって感じ。
+extends layout
+
+block content
+  h4 #{schedule.scheduleName}
+  p(style="white-space:pre;") #{schedule.memo}
+  p 作成者: #{schedule.user.username}
+  h3 出欠表
+  table
+    tr
+      th 予定
+      each user in users
+        th #{user.username}
+    each candidate in candidates
+      tr
+        th #{candidate.candidateName}
+        each user in users
+          td
+            button 欠席
+
+なお、出欠の更新は最終的に AJAX で行いたいため、 HTML のボタン要素を置くだけにとどめています。
+
+・routes/schedules.js　を以下のように
+const Schedule = require('../models/schedule');
+ const Candidate = require('../models/candidate');
++const User = require('../models/user');
+
+ router.get('/new', authenticationEnsurer, (req, res, next) => {
+   res.render('new', { user: req.user });
+以上の部分で、必要となるユーザーのデータモデルを読み込んでいます。そして以下が Router オブジェクトの実際の処理です。
+
+   });
+ });
+
++router.get('/:scheduleId', authenticationEnsurer, (req, res, next) => {
++  Schedule.findOne({
++    include: [
++      {
++        model: User,
++        attributes: ['userId', 'username']
++      }],
++    where: {
++      scheduleId: req.params.scheduleId
++    },
++    order: '"updatedAt" DESC'
++  }).then((schedule) => {
++    if (schedule) {
++      Candidate.findAll({
++        where: { scheduleId: schedule.scheduleId },
++        order: '"candidateId" ASC'
++      }).then((candidates) => {
++         res.render('schedule', {
++              user: req.user,
++              schedule: schedule,
++              candidates: candidates,
++              users: [req.user]
++            });
++      });
++    } else {
++      const err = new Error('指定された予定は見つかりません');
++      err.status = 404;
++      next(err);
++    }
++  });
++});
+ module.exports = router;
+
+補足.then(schedule)にDBから取ってきたものがはいっている。
+上部分の実装は、 sequelize を利用しテーブルを結合してユーザーを取得する書き方です。
+schedule.user というプロパティに、ユーザー情報が設定されます。
+なお、 findOne 関数は、そのデータモデルに対応するデータを 1 行だけ取得する関数です。
+またユーザーの属性としては、ユーザー ID とユーザー名が取得されています。
+取得自体は、予定の更新日時の降順で取得されるようになっています。
+以上で、予定が見つかった場合に、その候補一覧を取得しています。並びは、候補 ID の昇順、つまり作られた順番に並びます。
+無事取得できたら、先ほどのテンプレートに必要な変数を設定して、テンプレートを描画しています。
+なお、予定が見つからなかった場合には、 404 Not Found を表示するようにしています。
+
+・まだこの実装のテストを作成していませんでした。「予定が作成でき、表示される」ことをテストしてみましょう。
+すでに「予定を作成できる」の部分をテストするコードは下記のように実装されています。
+// TODO 作成された予定と候補が表示されていることをテストする と書いてあるコメントを消して、
+残りの「予定が表示されること」を正しくをテストすることを考えます。
+
+describe('/schedules', () => {
+  before(() => {
+    passportStub.install(app);
+    passportStub.login({ id: 0, username: 'testuser' });
+  });
+
+  after(() => {
+    passportStub.logout();
+    passportStub.uninstall(app);
+  });
+
+  it('予定が作成でき、表示される', (done) => {
+    User.upsert({ userId: 0, username: 'testuser' }).then(() => {
+      request(app)
+        .post('/schedules')
+        .send({ scheduleName: 'テスト予定1', memo: 'テストメモ1\r\nテストメモ2', candidates: 'テスト候補1\r\nテスト候補2\r\nテスト候補3' })
+        .expect('Location', /schedules/)
+        .expect(302)
+        .end((err, res) => {
+          const createdSchedulePath = res.headers.location;
+          request(app)
+            .get(createdSchedulePath)
+            .expect(/ここにテストかくよってこと /)
+
+            .expect(/テスト予定1/)
+            .expect(/テストメモ1/)
+            .expect(/テストメモ2/)
+            .expect(/テスト候補1/)
+            .expect(/テスト候補2/)
+            .expect(/テスト候補3/)
+
+            // TODO 作成された予定と候補が表示されていることをテストする
+            .expect(200)
+            .end((err, res) => {
+              // テストで作成したデータを削除   ↓の処理で消している。
+              const scheduleId = createdSchedulePath.split('/schedules/')[1];
+              Candidate.findAll({
+                where: { scheduleId: scheduleId }
+              }).then((candidates) => {
+                candidates.forEach((c) => { c.destroy(); });
+                Schedule.findById(scheduleId).then((s) => { s.destroy(); });
+              });
+              if (err) return done(err);
+              done();
+            });
+        });
+    });
+  });
+
+});
+
+まず userId が 0 で username が、testuserのユーザーをデータベース上に作成しています。
+その後、 POST メソッドを使い予定と候補を作成しています。
+そこからリダイレクトされることを検証し、
+予定が表示されるページヘのアクセスが 200 のステータスコードであることを検証しています。
+なお、テストが終わった後に、テストで作成されたユーザー以外のデータを削除する処理が加えられています。
+ここで使われている findById 関数は、モデルに対応するデータを主キーによって 1 行だけ取得することができる関数です。
+// TODO 作成された予定と候補が表示されていることをテストする の部分に必要な処理を書き足してください。
+.expect(/${文字列}/)
+↓これをtest.jsの上に記載しないとテスト失敗する。　
+const User = require('../models/user');
+const Schedule = require('../models/schedule');
+const Candidate = require('../models/candidate');
+
+・出欠表の表示アルゴリズム　
+前回までの実装で、HTML へ表示された出欠表は
+行を、候補
+列を、ユーザー名
+で構成していました。
+この時、出欠のデータをどのように用意すれば、表の内容を表示できるでしょうか。
+そもそも、出欠の情報はまだデータベースに一行も追加されていません。
+そのため出欠表の閲覧ユーザーはまずは自分は全て「欠席」であるという状態で、この出欠表が表示される必要があります。
+また他のユーザーが更新した出欠のデータでも、そのユーザーは特定の候補にだけ出欠を入力する場合が考えられます。
+入力が行われた一部候補の出欠に関してだけ、情報が保管されている状態です。
+以上を考えると、つまりデータベース上に情報はないけれども、表示上、出欠データがあるように見せる工夫が必要なのです。
+またテンプレート内で、候補で列をループし、ユーザー名で行をループしています。
+そこに出欠情報を表示させるにはどのようにすればいいでしょうか。
+
+こういう 2 つのキーで参照する情報には、入れ子になった連想配列 Map を利用します。
+
+出欠 MapMap
+キーは、ユーザー ID
+値は、出欠 Map
+出欠 Map
+キーは、候補 ID
+値は、出欠内容
+このような 2 つの入れ子の Map を利用しましょう。
+二重の入れ子になっている Map ということがわかりやすいよう、そのような Map のことを MapMap と書いています。
+MapMap が用意されていれば ユーザー ID と 候補 ID を使って、出欠内容を取得することができ、テンプレートの候補とユーザーのループの中で値を取得することができそうです。
+では、この出欠データを作る手順をまとめていきます。
+
+データベースからその予定の全ての出欠を取得する
+出欠 MapMap(キー:ユーザー ID, 値:出欠Map(キー:候補 ID, 値:出欠)) を作成する
+閲覧ユーザーと出欠に紐づくユーザーからユーザー Map (キー:ユーザー ID, 値:ユーザー) を作る
+全ユーザー全候補で二重ループして、それぞれの出欠の値がない場合には「欠席」を設定する
+このような処理にしていきましょう。
+
+※重要　連想配列ヒント　{key,候補ID}
+出欠Map　= {候補ID1=>欠席0, 候補ID2=>出席1}, 
+出欠MapMap{
+  'ユーザーID1234'=>{候補ID1=>欠席0, 候補ID2=>出席1},(←出欠Mapの事。)
+  'ユーザーID5678'=>{候補ID1=>欠席0, 候補ID2=>出席1}
+}
+出欠MapMapの使い方は
+出欠MapMap[ユーザーID1234][候補ID]=>欠席0
+
+・routes/schedules.js を
+ const User = require('../models/user');
++const Availability = require('../models/availability');
+
+モデル読み込みして↓
+       }).then((candidates) => {
+-        res.render('schedule', {
+-          user: req.user,
+-          schedule: schedule,
+-          candidates: candidates,
+-          users: [req.user]
++        // データベースからその予定の全ての出欠を取得する
++        Availability.findAll({
++          include: [
++            {
++              model: User,
++              attributes: ['userId', 'username']
++            }
++          ],
++          where: { scheduleId: schedule.scheduleId },
++          order: '"user.username" ASC, "candidateId" ASC'
++        }).then((availabilities) => {
++          // 出欠 MapMap(キー:ユーザー ID, 値:出欠Map(キー:候補 ID, 値:出欠)) を作成する
++          const availabilityMapMap = new Map(); // key: userId, value: Map(key: candidateId, availability)
++          availabilities.forEach((a) => {
++            const map = availabilityMapMap.get(a.user.userId) || new Map();
++            map.set(a.candidateId, a.availability);
++            availabilityMapMap.set(a.user.userId, map);
++          });
++
++          console.log(availabilityMapMap); // TODO 除去する
++
++          res.render('schedule', {
++            user: req.user,
++            schedule: schedule,
++            candidates: candidates,
++            users: [req.user],
++            availabilityMapMap: availabilityMapMap
++          });
+         });
+       });
+     } else {
+
+Map {}のコンソールログを確認。
+まだ出欠のレコードがまだひとつもできていないためです。
+
+・ここまでうまくいったら次を実装して聞きます。　schedules.js
+          // 出欠 MapMap(キー:ユーザー ID, 値:出欠Map(キー:候補 ID, 値:出欠)) を作成する
+           const availabilityMapMap = new Map(); // key: userId, value: Map(key: candidateId, availability)
+           availabilities.forEach((a) => {
+             const map = availabilityMapMap.get(a.user.userId) || new Map();
+             map.set(a.candidateId, a.availability);
+             availabilityMapMap.set(a.user.userId, map);
+           });
+
++          // 閲覧ユーザーと出欠に紐づくユーザーからユーザー Map (キー:ユーザー ID, 値:ユーザー) を作る
++          const userMap = new Map(); // key: userId, value: User
++          userMap.set(parseInt(req.user.id), {
++              isSelf: true,
++              userId: parseInt(req.user.id),
++              username: req.user.username
++          });
++          availabilities.forEach((a) => {
++            userMap.set(a.user.userId, {
++              isSelf: parseInt(req.user.id) === a.user.userId, // 閲覧ユーザー自身であるかを含める
++              userId: a.user.userId,
++              username: a.user.username
++            });
++          });
++
++          // 全ユーザー、全候補で二重ループしてそれぞれの出欠の値がない場合には、「欠席」を設定する
++          const users = Array.from(userMap).map((keyValue) => keyValue[1]);
++          users.forEach((u) => {
++            candidates.forEach((c) => {
++              const map = availabilityMapMap.get(u.userId) || new Map();
++              const a = map.get(c.candidateId) || 0; // デフォルト値は 0 を利用
++              map.set(c.candidateId, a);
++              availabilityMapMap.set(u.userId, map);
++            });
++          });
++
+           console.log(availabilityMapMap); // TODO 除去する
+
+           res.render('schedule', {
+             user: req.user,
+             schedule: schedule,
+             candidates: candidates,
+-            users: [req.user],             
++            users: users,
+             availabilityMapMap: availabilityMapMap
+           });
+         });
+       });
+     } else {
+
+ここでは、ユーザー Map を作成し、まずは閲覧ユーザー自身を加えています。
+さらにその後、出欠のデータを一つでも持っていたユーザーをユーザー Map に含めています。
+なおここでは、閲覧ユーザーであるかどうかを示す isSelf というフラグも作成しています。
+このフラグは今後、出欠情報を更新する UI を表示させていいかどうかの判断に利用します。
+出欠情報を持つ全ユーザー、全候補で二重ループを実行し、出欠データを更新していきます。
+出欠情報が存在しない場合は、デフォルト値の 0 を利用します。
+この 0 が、欠席を表すことになります。
+localhost8080にて予定作成してコンソールMap{}の中を確認。
+
+・出欠情報が用意できたので、次はそれをテンプレートで利用しましょう。
+views/schedule.jade を以下のように修正します。
+
+       tr
+         th #{candidate.candidateName}
+         each user in users
++          - var availability = availabilityMapMap.get(user.userId).get(candidate.candidateId)
++          - var availabilityLabels = ['欠', '？', '出'];
+           td
+-            button 欠席
++            if user.isSelf
++              button #{availabilityLabels[availability]}
++            else
++              p #{availabilityLabels[availability]}
+
+・また routes/schedules.js から console.log 関数はもう取り除いてしまいましょう。
+
+             });
+           });
+
+-          console.log(availabilityMapMap); // TODO 除去する
+-
+
+・この出欠の更新を行うための Web API を実装します。
+出欠表から AJAX で、この出欠表の更新が行えるようにするため
+/schedules/:scheduleId/users/:userId/candidates/:candidateId
+以上のパスで行われる設計になっていました。
+これに沿って実装していきましょう。
+routes/availabilities.js を以下のように
+
+'use strict';
+const express = require('express');
+const router = express.Router();
+const authenticationEnsurer = require('./authentication-ensurer');
+const Availability = require('../models/availability');
+
+router.post('/:scheduleId/users/:userId/candidates/:candidateId', authenticationEnsurer, (req, res, next) => {
+  const scheduleId = req.params.scheduleId;
+  const userId = req.params.userId;
+  const candidateId = req.params.candidateId;
+  let availability = req.body.availability;
+  availability = availability ? parseInt(availability) : 0;
+
+  Availability.upsert({
+    scheduleId: scheduleId,
+    userId: userId,
+    candidateId: candidateId,
+    availability: availability
+  }).then(() => {
+    res.json({ status: 'OK', availability: availability });
+  });
+});
+
+module.exports = router;
+
+以上では、 パスから予定 ID、ユーザー ID、候補 ID を受け取り、 
+POST のリクエストに含まれる availability というプロパティで、データベースを更新する実装になっています。
+もちろん API の利用には、認証を求めるようになっています。
+また更新後は、 JSON で
+
+{ status: 'OK', availability: ${availability} }
+という値が戻るようにしてあります。
+
+・以上で実装した Router オブジェクトを、 Application オブジェクトに設定をしておきましょう。
+app.js を以下のように実装
+
+var logout = require('./routes/logout');
+ var schedules = require('./routes/schedules');
++var availabilities = require('./routes/availabilities');
+
+ var app = express();
+と
+
+ app.use('/logout', logout);
+ app.use('/schedules', schedules);
++app.use('/schedules', availabilities);
+
+ app.get('/auth/github',
+   passport.authenticate('github', { scope: ['user:email'] }),
+以上を実装します。
+これで Router オブジェクトが使われるように設定できました。
+
+次は更新ができるかどうかをテストしてみましょう
+test/test.jsへ
+ const Schedule = require('../models/schedule');
+ const Candidate = require('../models/candidate');
++const Availability = require('../models/availability');
+
+            .expect(/テスト候補2/)
+             .expect(/テスト候補3/)
+             .expect(200)
+-            .end((err, res) => {
+-              // テストで作成したデータを削除
+-              const scheduleId = createdSchedulePath.split('/schedules/')[1];
+-              Candidate.findAll({
+-                where: { scheduleId: scheduleId }
+-              }).then((candidates) => {
+-                candidates.forEach((c) => { c.destroy(); });
+-                Schedule.findById(scheduleId).then((s) => { s.destroy(); });
+-              });
+-              done();
+-            });
++            .end((err, res) => { deleteScheduleAggregate(createdSchedulePath.split('/schedules/')[1], done, err);});
+         });
+     });
+   });
+});
++
++describe('/schedules/:scheduleId/users/:userId/candidates/:candidateId', () => {
++  before(() => {
++    passportStub.install(app);
++    passportStub.login({ id: 0, username: 'testuser' });
++  });
++
++  after(() => {
++    passportStub.logout();
++    passportStub.uninstall(app);
++  });
++
++  it('出欠が更新できる', (done) => {
++    User.upsert({ userId: 0, username: 'testuser' }).then(() => {
++      request(app)
++        .post('/schedules')
++        .send({ scheduleName: 'テスト出欠更新予定1', memo: 'テスト出欠更新メモ1', candidates: 'テスト出欠更新候補1' })
++        .end((err, res) => {
++          const createdSchedulePath = res.headers.location;
++          const scheduleId = createdSchedulePath.split('/schedules/')[1];
++          Candidate.findOne({
++            where: { scheduleId: scheduleId }
++          }).then((candidate) => {
++            // 更新がされることをテスト
++            request(app)
++              .post(`/schedules/${scheduleId}/users/${0}/candidates/${candidate.candidateId}`)
++              .send({ availability: 2 }) // 出席に更新
++              .expect('{"status":"OK","availability":2}')
++              .end((err, res) => { deleteScheduleAggregate(scheduleId, done, err); });
++          });
++        });
++    });
++  });
++});
+　　　　　　　　　　　　　　　　　　　　　　　↓の関数は↑の関数へ入れている　最後に消すよっていう関数。
++function deleteScheduleAggregate(scheduleId, done, err) {
++  Availability.findAll({
++    where: { scheduleId: scheduleId }
++  }).then((availabilities) => {
++    const promises = availabilities.map((a) => { return a.destroy(); });
++    Promise.all(promises).then(() => {
++      Candidate.findAll({
++        where: { scheduleId: scheduleId }
++      }).then((candidates) => {
++        const promises = candidates.map((c) => { return c.destroy(); });
++        Promise.all(promises).then(() => {
++          Schedule.findById(scheduleId).then((s) => { s.destroy(); });
++          if (err) return done(err);
++          done();
++        });
++      });
++    });
++  });
++}
+
+このたび新たに deleteScheduleAggregate という関数を用意して、予定、
+そこに紐づく出欠、候補を削除するためのメソッドを切り出して、
+「予定が作成でき、表示される」と「出欠が更新できる」の両方でテストの最後に実行できるように実装してみました。
+なおここに出てきた Aggregate という英単語は、集約という意味の英単語です。
+特定の親のデータモデルが他のデータモデルを所有するという関係を持っています。
+※　上のマイナス消した部分を関数に入れてしまう。　それをつかう。
+※describeは第一引数にメモ的に何でも入れてもよい。
+
+以上の実装で、テストで作成した予定と、そこに紐づく情報を削除するメソッドを呼び出しています。
+引数としては scheduleId と done の 2 つが渡されています。
+追加された deleteScheduleAggregate 関数を見てみましょう。
+この関数では、まず最初に scheduleId を元に全ての出欠を取得しています。
+その後、その全てを destroy 関数で削除し、その結果の Promise オブジェクトの配列を取得します。
+Promise.all 関数 は、配列で渡された全ての Promise が終了した際に結果を返す、 Promise オブジェクトを作成します。
+なお、空配列が渡された場合も Promise オブジェクトが作成されます。
+その後は候補を削除し、同様にその全ての候補が削除された結果として渡される Promise オブジェクトの配列を同様に一つの
+Promise にし、候補が全て削除されたら予定を削除するように実装しています。
+なお、このような親子関係のあるデータの削除方法にはこつがあります。
+基本的には子ども側のデータから消していくことで、データベースの処理が仮に途中で止まってしまったとしても、
+データが不正な状況を防ぐことができるのです。
+そこで、ここでも最も子どものデータである「出欠」を消し、
+次にその親のデータの「候補」を消し、最後に「予定」を消す、とすることで、データが不正になる問題に対処しています。
+なおここでは、 const で promises という変数を二度宣言しています。
+const による変数宣言では { と } で囲まれたスコープと呼ばれる範囲内で、変数の利用と同じスコープにある宣言が、
+同名の場合優先して利用されるようになっています。
+
+そして、次は「出欠が更新できる」のテストです。
+利用するパスの記述と、テストの実施の際にログインとログアウトを行う実装をし、
+/schedules に POST を行い「予定」と「候補」を作成します。その後、
+Candidate.findOne({
+  where: { scheduleId: scheduleId }
+}).then((candidate) => {
+以上のコードで「予定」に関連する候補を取得し、その「候補」に対して、 POST で Web API に対して
+欠席を出席に更新しています。
+そしてそのリクエストのレスポンスに '{"status":"OK","availability":2}' が含まれるかどうかをテストしています。
+
+npm test
+以上のコマンドの結果
+Executing (default): CREATE OR REPLACE FUNCTION pg_temp.sequelize_upsert() RETURNS integer AS 
+が返ればOK
+
+※package.json　の"test: " ～mocha --timeout 10000"でテストの制限時間2000msを伸ばせる。
+
+・先ほど実装した「出欠が更新できる」のテストは、 Web API のインタフェースが返した結果をそのまま信用して、
+結果を判断しています。
+本当にデータベースに保存されたかどうかはテストされていません。
+本当にデータベースに存在するかどうかのテストも追加してみましょう。
+Availability.findAll 関数はデータベースから where で条件を指定した全ての出欠を取得します。
+また結果オブジェクトの then 関数を呼び出すことで、そこで渡す無名関数の引数 availabilities には、
+出欠のモデルである models/availability.js で定義したモデルの配列が渡されます。
+よってここでは、 availabilities の配列の長さを検証し、その内容も検証する実装を 
+assert モジュールを利用して書いてみましょう。
+
+test/test.js:
+
+ 'use strict';
+ const request = require('supertest');
++const assert = require('assert');
+ const app = require('../app');
+ const passportStub = require('passport-stub');
+ const User = require('../models/user');
+               .post(`/schedules/${scheduleId}/users/${0}/candidates/${candidate.candidateId}`)
+               .send({ availability: 2 }) // 出席に更新
+               .expect('{"status":"OK","availability":2}')
+-              .end((err, res) => { deleteScheduleAggregate(scheduleId, done, err); });
++              .end((err, res) => {
++                Availability.findAll({
++                  where: { scheduleId: scheduleId }
++                }).then((availabilities) => {
++                  assert.equal(availabilities.length, 1);
++                  assert.equal(availabilities[0].availability, 2);
++                  deleteScheduleAggregate(scheduleId, done, err);
++                });
++              });
+           });
+         });
+     });
+
+ここではassert.equalでテストしている。ここで値代えて間違えてテストすることも必要。
+
+超重要
+※・お決まりのパターンになっている　　
+新しい機能追加したい　コメント機能作りたいってなったら　投稿できる表示をjadeで作り　入力欄やボタンができますよねと
+APIを作っていきます。新しいコメント情報受け取ったらDBを書き換えるAPIをつくる　コメント編集して　ボタンを押すと
+AJAXでAPI情報を送る　そのAPIがDBにデータを保存するとこまでつくる
+そしたらルーターがDBに保存されたデータを取ってきて表示する。
+それを繰り返す。
+
+・コメントの表示と更新
+前回までで Web API を利用した出欠の更新ができるようになりました。
+今度はこれを AJAX でクライアントの JavaScript から出欠の更新を利用できるようにしていきます。
+すでに習ったクライアントサイドのフレームワークである 
+webpack と DOM 操作と AJAX のライブラリである jQuery を利用して実装していきましょう。
+
+npm install webpack@2.3.2 --save-dev　　　　　今回できたけどできなければ　yarn add
+npm install jquery@3.3.1 --save
+これでインストールを行い、以下のコマンドで必要なディレクトリとファイルを作成します。
+
+・↓を実装
+touch webpack.config.js
+mkdir app
+echo "'use strict';" > app/entry.js
+mkdir public/javascripts
+
+～　上のyarn addの関連情報。
+rm -rf node_modules/
+npm cache clean -force
+npm install -g npm@5.7.1
+npm install
+～
+
+・また、 webpack.config.js を以下のように設定しましょう。　ここでパブリックへビルドする設定をかいている。
+module.exports = {
+  context: __dirname + '/app',
+  entry: './entry',
+  output: {
+    path: __dirname + '/public/javascripts',
+    filename: 'bundle.js'
+  }
+};
+
+node_modules/.bin/webpack　でビルドする。public/javascripts/bundle.jsができる。
+
+・次に、 HTML からこの ビルドされた後の、JavaScript を利用できるようにします。
+すべての HTML で共通して利用できるように views/layout.jade で以下のように実装
+     link(rel='stylesheet', href='/stylesheets/style.css')
+   body
+     block content
++    script(src="/javascripts/bundle.js")
+ビルドしたらすぐ使えるようになる。
+
+・今度は出欠ボタンのオブジェクトを取得できるように、出欠表を表示している
+テンプレート views/schedule.jade にも以下のように変更をいれます。
+
+           - var availabilityLabels = ['欠', '？', '出'];
+           td
+             if user.isSelf
+-              button #{availabilityLabels[availability]}
++              button(class="availability-toggle-button"
++                data-schedule-id="#{schedule.scheduleId}"
++                data-user-id="#{user.userId}"
++                data-candidate-id="#{candidate.candidateId}"
++                data-availability="#{availability}") #{availabilityLabels[availability]}
+             else
+
+button 要素に、 class を設定しました。
+また、data- で始まる名前の属性を設定して、AJAX での通信に利用できるようにしています。
+この data-* 属性は、 HTML の要素に独自のデータを保有させたい場合に利用する属性となっています。
+ここでは、
+予定 ID
+ユーザー ID
+候補 ID
+出席
+これらの情報を button 要素の中に含めるようにしています。
+ではこの button 要素でボタンをクリックした際に Web API にアクセスして、出欠を更新するように実装してみましょう。
+
+・app/entry.js を以下のように実装します。　classは同じ名前できるIDとかはできない(HTMLの話)
+'use strict';
+const $ = require('jquery');
+
+$('.availability-toggle-button').each((i, e) => {
+  const button = $(e);
+  button.click(() => {
+    const scheduleId = button.data('schedule-id');
+    const userId = button.data('user-id');
+    const candidateId = button.data('candidate-id');
+    const availability = parseInt(button.data('availability'));
+    const nextAvailability = (availability + 1) % 3;
+    $.post(`/schedules/${scheduleId}/users/${userId}/candidates/${candidateId}`,
+      { availability: nextAvailability },
+      (data) => {
+        button.data('availability', data.availability);
+        const availabilityLabels = ['欠', '？', '出'];
+        button.text(availabilityLabels[data.availability]);
+      });
+  });
+});
+
+% 3;はあまりを返す　3で割ることで0.1.2しかでない。1を足して0.1.2を繰り返すようになる。
+　　　.がclassで#がID
+
+全ての出欠ボタンに対して、クリックすることで出欠状態の更新が Web API を通じて実行されるように実装してあります。
+詳しく説明します。
+$('.availability-toggle-button').each((i, e) => {
+この実装は、jQuery を利用して、 availability-toggle-button の class が設定されている要素をセレクタで取得しています。
+そして each 関数で、各要素に対して、 引数 i は順番、 引数 e は HTML 要素が渡される関数を実行しています。
+
+const button = $(e);
+button.click(() => {
+$(e) で、 ボタン要素の jQuery オブジェクトを取得し、そのボタンがクリックした際の関数を記述しています。
+
+ jQuery の data 関数を使用して data-* 属性を取得することで、
+予定 ID
+ユーザー ID
+候補 ID
+出席
+を取得しています
+
+・node_modules/.bin/webpack
+PORT=8080 npm start
+動作確認。
+
+無事出欠の更新機能を出欠表に実装することができました。
+
+・同様に予定に対してユーザーが行うコメントに対しても、表示と更新の機能を実装していきましょう。
+さっそく出欠表の最後の行に、それぞれのユーザーのコメントが表示できるように実装してみましょう。
+まずはテンプレートにコメントを表示できるようにしましょう。
+テンプレートに、キーをユーザー ID 、値をコメントとした連想配列を渡してあげればよさそうです。
+
+・routes/schedules.js を以下のように実装しましょう。
+
+ const Candidate = require('../models/candidate');
+ const User = require('../models/user');
+ const Availability = require('../models/availability');
++const Comment = require('../models/comment');
+
+ router.get('/new', authenticationEnsurer, (req, res, next) => {
+   res.render('new', { user: req.user });
+以上で、コメントのデータモデルを読み込んでいます。
+
+             });
+           });
+
+-          res.render('schedule', {
+-            user: req.user,
+-            schedule: schedule,
+-            candidates: candidates,
+-            users: users,
+-            availabilityMapMap: availabilityMapMap
++          // コメント取得
++          Comment.findAll({
++            where: { scheduleId: schedule.scheduleId }
++          }).then((comments) => {
++            const commentMap = new Map();  // key: userId, value: comment
++            comments.forEach((comment) => {
++              commentMap.set(comment.userId, comment.comment);
++            });
++            res.render('schedule', {
++              user: req.user,
++              schedule: schedule,
++              candidates: candidates,
++              users: users,
++              availabilityMapMap: availabilityMapMap,
++              commentMap: commentMap
++            });
+           });
+         });
+       });
+追加したのはfindAllコードブロックです。
+DBからFindAllする。
+
+以上で、 予定 ID でしぼりこんで取得される予定に関する、全てのコメントを取得しています。
+その後、連想配列 commentMap に格納し、テンプレートに commentMap という
+プロパティ名で割り当ててテンプレートを描画しています。
+
+・動作確認
+PORT=8080 npm start
+Executing (default): SELECT "scheduleId", "userId", "comment" FROM "comments" AS "comments" WHERE "comments"."scheduleId" = '8c321079-bc36-4e43-b151-167f6162fb7b';
+以上のコメントを取得するための SQL が実行できていることだけを確認しましょう。
+
+・テンプレートに受け渡す部分は、完全には確認できないので途中までの実装として、
+ここからは、 コメントを更新するための Web API を作ってみましょう。
+ほとんど出欠の更新の時に書いた実装と同じになります。最初に決めた設計では、
+
+/schedules/:scheduleId/users/:userId/comments
+以上のパスでこの Web API が使える設計になっていました。
+では、 routes/comments.js を以下のように実装します。
+
+・routes/comments.js　に実装↓
+'use strict';
+const express = require('express');
+const router = express.Router();
+const authenticationEnsurer = require('./authentication-ensurer');
+const Comment = require('../models/comment');
+
+router.post('/:scheduleId/users/:userId/comments', authenticationEnsurer, (req, res, next) => {
+  const scheduleId = req.params.scheduleId;
+  const userId = req.params.userId;
+  const comment = req.body.comment;
+
+  Comment.upsert({
+    scheduleId: scheduleId,
+    userId: userId,
+    comment: comment.slice(0, 255)
+  }).then(() => {
+    res.json({ status: 'OK', comment: comment });
+  });
+});
+
+module.exports = router;
+
+予定 ID、ユーザー ID、コメントをボディから comment というプロパティ名で取得し、 Comment のデータモデルを利用して、データベースに UPSERT を実施しています。
+また、コメントの内容だけを 255 文字以内になるようにコメントの内容を切り取っています。
+次にこの Router オブジェクトを Application オブジェクトに登録します。
+・app.js を以下のように実装します。
+
+ var logout = require('./routes/logout');
+ var schedules = require('./routes/schedules');
+ var availabilities = require('./routes/availabilities');
++var comments = require('./routes/comments');
+
+ var app = express();
+ app.use(helmet());
+以上でモジュールを読み込み、
+
+ app.use('/logout', logout);
+ app.use('/schedules', schedules);
+ app.use('/schedules', availabilities);
++app.use('/schedules', comments);
+
+ app.get('/auth/github',
+   passport.authenticate('github', { scope: ['user:email'] }),
+以上で登録を行っています。
+
+・「出欠が更新できる」の下にこのテストを書き足してしまいましょう。
+test/test.js を以下のように実装します。
+
+ const Schedule = require('../models/schedule');
+ const Candidate = require('../models/candidate');
+ const Availability = require('../models/availability');
++const Comment = require('../models/comment');
+
+ describe('/login', () => {
+   before(() => {
+以上でコメントのモデルを読み込みます。
+
+   });
+ });
+
++describe('/schedules/:scheduleId/users/:userId/comments', () => {
++  before(() => {
++    passportStub.install(app);
++    passportStub.login({ id: 0, username: 'testuser' });
++  });
++
++  after(() => {
++    passportStub.logout();
++    passportStub.uninstall(app);
++  });
++
++  it('コメントが更新できる', (done) => {
++    User.upsert({ userId: 0, username: 'testuser' }).then(() => {
++      request(app)
++        .post('/schedules')
++        .send({ scheduleName: 'テストコメント更新予定1', memo: 'テストコメント更新メモ1', candidates: 'テストコメント更新候補1' })
++        .end((err, res) => {
++          const createdSchedulePath = res.headers.location;
++          const scheduleId = createdSchedulePath.split('/schedules/')[1];
++          // 更新がされることをテスト
++          request(app)
++            .post(`/schedules/${scheduleId}/users/${0}/comments`)
++            .send({ comment: 'testcomment' })
++            .expect('{"status":"OK","comment":"testcomment"}')
++            .end((err, res) => {
++              Comment.findAll({
++                where: { scheduleId: scheduleId }
++              }).then((comments) => {
++                assert.equal(comments.length, 1);
++                assert.equal(comments[0].comment, 'testcomment');
++                deleteScheduleAggregate(scheduleId, done, err);
++              });
++            });
++        });
++    });
++  });
++});
++
+ function deleteScheduleAggregate(scheduleId, done, err) {
++  const processCommentDestory = Comment.findAll({
++    where: { scheduleId: scheduleId }
++  }).then((comments) => { comments.map((c) => { return c.destroy(); });});
++
+   Availability.findAll({
+     where: { scheduleId: scheduleId }
+   }).then((availabilities) => {
+
+npm test が通る。
+
+・コメントの更新の UI も加えてしまいましょう。
+まずは、 views/schedule.jade を以下のように編集します
+
+                 data-candidate-id="#{candidate.candidateId}"
+                 data-availability="#{availability}") #{availabilityLabels[availability]}
+             else
+               p #{availabilityLabels[availability]}
++    tr
++      th コメント
++      each user in users
++        if user.isSelf
++          td
++            p(id="self-comment") #{commentMap.get(user.userId)}
++            button(id="self-comment-button"
++              data-schedule-id="#{schedule.scheduleId}"
++              data-user-id="#{user.userId}") 編集
++        else
++          td
++            p #{commentMap.get(user.userId)}
+コメント行を出欠表の末尾につけて、閲覧者自体のコメントの下には編集ボタンを配置しました。
+button 要素には、 data-* 属性のほか、 id として、 self-comment-button をつけてあります。
+加えてコメント自体を表示する段落の p 要素にも、self-comment という id をつけました。
+class でなく id を利用したのは、基本的にこのページには自身のコメントは一つしかないためです。
+
+・次にこの HTML に合わせて、 app/entry.js を編集します。
+         button.text(availabilityLabels[data.availability]);
+       });
+   });
+ });
++
++const buttonSelfComment = $('#self-comment-button');
++buttonSelfComment.click(() => {
++  const scheduleId = buttonSelfComment.data('schedule-id');
++  const userId = buttonSelfComment.data('user-id');
++  const comment = prompt('コメントを255文字以内で入力してください。');
++  if (comment) {
++    $.post(`/schedules/${scheduleId}/users/${userId}/comments`,
++      { comment: comment },
++      (data) => {
++        $('#self-comment').text(data.comment);
++      });
++  }
++});
+
+出欠更新の処理と同じですが、 prompt 関数を利用してコメントを入力できるようにしています。
+ポップアップされてコメント入力する。インターフェイス。
+
+・では実際に動かしてみましょう。
+node_modules/.bin/webpack
+PORT=8080 npm start
+
+・　Promise の実装例　だがしかし
+}).then((v1) => { // v1 は 2
+  new Promise((resolve) => {
+    resolve(v1 * 3);
+  }).then((v2) => { // v2 は 6
+    new Promise((resolve) => {
+      resolve(v2 * 4);
+    }).then((v3) => { // v3 は 24
+      console.log(v3); // 24 が出力される
+    });
+このような深い then の入れ子構造となります。　どんどん右にいく的な。
+
+そこで
+これを then 関数に渡す関数内で return を利用すると、以下のように書き直せます。
+
+new Promise((resolve) => {
+  resolve(2);
+}).then((v1) => { // v1 は 2
+  return new Promise((resolve) => {
+    resolve(v1 * 3);
+  });
+}).then((v2) => { // v2 は 6
+  return new Promise((resolve) => {
+    resolve(v2 * 4);
+  });
+}).then((v3) => { // v3 は 24
+  console.log(v3); // 24 が出力される
+});
+以上は全く同じ処理ですが、 return で Promise オブジェクトを返すことで、
+次の then 関数の引数では、その結果をそのまま受け取ることができます。
+
+・最初に、test/test.js の deleteScheduleAggregate 関数を書き直します。　
+deleteScheduleAggregate　関数のところから全てコピペ。
+
+function deleteScheduleAggregate(scheduleId, done, err) {
+  const promiseCommentDestroy = Comment.findAll({
+    where: { scheduleId: scheduleId }
+  }).then((comments) => {
+    return Promise.all(comments.map((c) => { return c.destroy(); }));
+  });
+
+  Availability.findAll({
+    where: { scheduleId: scheduleId }
+  }).then((availabilities) => {
+    const promises = availabilities.map((a) => { return a.destroy(); });
+    return Promise.all(promises);
+  }).then(() => {
+    return Candidate.findAll({
+      where: { scheduleId: scheduleId }
+    });
+  }).then((candidates) => {
+    const promises = candidates.map((c) => { return c.destroy(); });
+    promises.push(promiseCommentDestroy);
+    return Promise.all(promises);
+  }).then(() => {
+    Schedule.findById(scheduleId).then((s) => { s.destroy(); });
+    if (err) return done(err);
+    done();
+  });
+}
+
+このように、処理結果は変えずに、処理内容を改善したりコードを扱いやすくすることをリファクタリングといいます
+6 passing (2s)
+と表示されてテストが無事成功し、
+
+DELETE FROM "availabilities"
+DELETE FROM "comments
+DELETE FROM "candidates"
+DELETE FROM "schedules"
+これらで始まる削除 SQL が全て実行されていればリファクタリングは成功です。
+
+・次は routes/schedules.js の /:scheduleId の GET のハンドラをリファクタリングしてみましょう。
+以下のように書き換えることができます。
+全てコピペ。
+
+router.get('/:scheduleId', authenticationEnsurer, (req, res, next) => {
+  let storedSchedule = null;
+  let storedCandidates = null;
+  Schedule.findOne({
+    include: [
+      {
+        model: User,
+        attributes: ['userId', 'username']
+      }],
+    where: {
+      scheduleId: req.params.scheduleId
+    },
+    order: '"updatedAt" DESC'
+  }).then((schedule) => {
+    if (schedule) {
+      storedSchedule = schedule;
+      return Candidate.findAll({
+        where: { scheduleId: schedule.scheduleId },
+        order: '"candidateId" ASC'
+      });
+    } else {
+      const err = new Error('指定された予定は見つかりません');
+      err.status = 404;
+      next(err);
+    }
+  }).then((candidates) => {
+    // データベースからその予定の全ての出欠を取得する
+    storedCandidates = candidates;
+    return Availability.findAll({
+      include: [
+        {
+          model: User,
+          attributes: ['userId', 'username']
+        }
+      ],
+      where: { scheduleId: storedSchedule.scheduleId },
+      order: '"user.username" ASC, "candidateId" ASC'
+    });
+  }).then((availabilities) => {
+    // 出欠 MapMap(キー:ユーザー ID, 値:出欠Map(キー:候補 ID, 値:出欠)) を作成する
+    const availabilityMapMap = new Map(); // key: userId, value: Map(key: candidateId, availability)
+    availabilities.forEach((a) => {
+      const map = availabilityMapMap.get(a.user.userId) || new Map();
+      map.set(a.candidateId, a.availability);
+      availabilityMapMap.set(a.user.userId, map);
+    });
+
+    // 閲覧ユーザーと出欠に紐づくユーザーからユーザー Map (キー:ユーザー ID, 値:ユーザー) を作る
+    const userMap = new Map(); // key: userId, value: User
+    userMap.set(parseInt(req.user.id), {
+      isSelf: true,
+      userId: parseInt(req.user.id),
+      username: req.user.username
+    });
+    availabilities.forEach((a) => {
+      userMap.set(a.user.userId, {
+        isSelf: parseInt(req.user.id) === a.user.userId, // 閲覧ユーザー自身であるかを含める
+        userId: a.user.userId,
+        username: a.user.username
+      });
+    });
+
+    // 全ユーザー、全候補で二重ループしてそれぞれの出欠の値がない場合には、「欠席」を設定する
+    const users = Array.from(userMap).map((keyValue) => keyValue[1]);
+    users.forEach((u) => {
+      storedCandidates.forEach((c) => {
+        const map = availabilityMapMap.get(u.userId) || new Map();
+        const a = map.get(c.candidateId) || 0; // デフォルト値は 0 を利用
+        map.set(c.candidateId, a);
+        availabilityMapMap.set(u.userId, map);
+      });
+    });
+
+    // コメント取得
+    return Comment.findAll({
+      where: { scheduleId: storedSchedule.scheduleId }
+    }).then((comments) => {
+      const commentMap = new Map();  // key: userId, value: comment
+      comments.forEach((comment) => {
+        commentMap.set(comment.userId, comment.comment);
+      });
+      res.render('schedule', {
+        user: req.user,
+        schedule: storedSchedule,
+        candidates: storedCandidates,
+        users: users,
+        availabilityMapMap: availabilityMapMap,
+        commentMap: commentMap
+      });
+    });
+  });
+});
+
+Candidate.findAll の結果と Availability.findAll の結果をそれぞれ then 関数の return で返すようにしました。
+
+・お決まりのパターンをまた繰り返す。
+候補の編集機能に加えて、予定を欠席の状態に戻す機能や、
+候補に変更があったことを通知したりするなどの別な機能がないと、運用上の問題が起こってしまいます。
+そのため、ここの編集では、
+新たな予定の候補を追加ができる
+という要件として実装していきましょう。
+まずはテンプレートファイルを作成します。
+touch views/edit.jade
+そして、 views/edit.jade を以下のように実装しましょう。
+このテンプレートには、
+schedule というプロパティ名の予定のモデル
+candidates というプロパティ名で候補のモデルの配列
+が割り当てられる前提で実装をしていきます。
+↓
+extends layout
+
+block content
+  h3 予定の編集
+  form(method="post", action="/schedules/#{schedule.scheduleId}?edit=1")
+    div
+      h5 予定名
+      input(type="text" name="scheduleName" value="#{schedule.scheduleName}")
+    div
+      h5 メモ
+      textarea(name="memo") #{schedule.memo}
+    div
+      label 既存の候補日程
+      ul
+        each candidate in candidates
+          li #{candidate.candidateName}
+      p 候補日程の追加 (改行して複数入力してください)
+      textarea(name="candidates")
+    div
+      button(type="submit") 以上の内容で予定を編集する
+
+また、フォームの投稿を受け付ける URL のパスは、
+
+/schedules/:scheduleId?edit=1
+となっているため、そのように実装しました。
+
+・では、これに合わせたハンドラを Router オブジェクトに登録してしまいましょう。
+routes/schedules.js を以下のように編集します。
+
+     });
+   });
+ });
++
++router.get('/:scheduleId/edit', authenticationEnsurer, (req, res, next) => {
++  Schedule.findOne({
++    where: {
++      scheduleId: req.params.scheduleId
++    }
++  }).then((schedule) => {
++    if (isMine(req, schedule)) { // 作成者のみが編集フォームを開ける
++      Candidate.findAll({
++        where: { scheduleId: schedule.scheduleId },
++        order: '"candidateId" ASC'
++      }).then((candidates) => {
++        res.render('edit', {
++          user: req.user,
++          schedule: schedule,
++          candidates: candidates
++        });
++      });
++    } else {
++      const err = new Error('指定された予定がない、または、予定する権限がありません');
++      err.status = 404;
++      next(err);
++    }
++  });
++});
++
++function isMine(req, schedule) {
++  return schedule && parseInt(schedule.createdBy) === parseInt(req.user.id);
++}
++
+ module.exports = router;
+\ No newline at end of file
+
+・動作確認　8080番　/editでページ表示確認。
+
+・予定編集を反映させる実装。
+/schedules/:scheduleId?edit=1
+以上のパスに POST メソッドで送られる情報を使って、データベースを更新してみましょう。
+実装の流れとしては、
+
+予定 ID で指定された予定を取得
+予定名とメモを更新
+新しく追加された候補をデータベース上に作成
+予定表示ページにリダイレクト
+という実装になっています。
+
+また、予定作成と同じ実装になる部分に関しては、いくつか関数に切り出してしまいましょう。
+routes/schedules.js を以下のように編集します。
+
+     createdBy: req.user.id,
+     updatedAt: updatedAt
+   }).then((schedule) => {
+-    const candidateNames = req.body.candidates.trim().split('\n').map((s) => s.trim());
+-    const candidates = candidateNames.map((c) => { return {
+-      candidateName: c,
+-      scheduleId: schedule.scheduleId
+-    };});
+-    Candidate.bulkCreate(candidates).then(() => {
+-          res.redirect('/schedules/' + schedule.scheduleId);
+-    });
++    createCandidatesAndRedirect(parseCandidateNames(req), scheduleId, res);
+   });
+ });
+createCandidatesAndRedirect という関数で、候補の作成とリダイレクトを行うようにまとめました。
+この処理は、編集でも全く同じとなるためです。
+
+・同じくroutes/schedules.js を編集　　これは予定編集のAPI
+   return schedule && parseInt(schedule.createdBy) === parseInt(req.user.id);
+ }
+
++router.post('/:scheduleId', authenticationEnsurer, (req, res, next) => {
++  if (parseInt(req.query.edit) === 1) {
++    Schedule.findOne({
++      where: {
++        scheduleId: req.params.scheduleId
++      }
++    }).then((schedule) => {
++      if (isMine(req, schedule)) { // 作成者のみ
++        const updatedAt = new Date();
++        schedule.update({
++          scheduleId: schedule.scheduleId,
++          scheduleName: req.body.scheduleName.slice(0, 255),
++          memo: req.body.memo,
++          createdBy: req.user.id,
++          updatedAt: updatedAt
++        }).then((schedule) => {
++          Candidate.findAll({
++            where: { scheduleId: schedule.scheduleId },
++            order: '"candidateId" ASC'
++          }).then((candidates) => {
++            // 追加されているかチェック
++            const candidateNames = parseCandidateNames(req);
++            if (candidateNames) {
++              createCandidatesAndRedirect(candidateNames, schedule.scheduleId, res);
++            } else {
++              res.redirect('/schedules/' + schedule.scheduleId);
++            }
++          });
++        });
++      } else {
++        const err = new Error('指定された予定がない、または、編集する権限がありません');
++        err.status = 404;
++        next(err);
++      }
++    });
++  } else {
++    const err = new Error('不正なリクエストです');
++    err.status = 400;
++    next(err);
++  }
++});
++
++function createCandidatesAndRedirect(candidateNames, scheduleId, res) {
++    const candidates = candidateNames.map((c) => { return {
++      candidateName: c,
++      scheduleId: scheduleId
++    };});
++    Candidate.bulkCreate(candidates).then(() => {
++          res.redirect('/schedules/' + scheduleId);
++    });
++}
++
++function parseCandidateNames(req) {
++  return req.body.candidates.trim().split('\n').map((s) => s.trim());
++}
++
+ module.exports = router;
+\ No newline at end of file
+以上が具体的な予定更新の処理となります。
+
+・あと、流石に編集ページヘのリンクが無くて不便なので、views/schedule.jade も以下のように編集して、
+リンクを作成してしまいましょう。
+
+   h4 #{schedule.scheduleName}
+   p(style="white-space:pre;") #{schedule.memo}
+   p 作成者: #{schedule.user.username}
++  - var isMine = parseInt(user.id) === schedule.user.userId
++  if isMine
++    div
++      a(href="/schedules/#{schedule.scheduleId}/edit") この予定を編集する
+   h3 出欠表
+   table
+     tr
+これで、自分の予定であれば予定を編集するためのリンクが表示されるようになるはずです。
+
+・動作確認。　8080　
+予定を押すと"この予定を編集するのリンクが表示できた"それをクリックすると/editページへ移動するようになる。
+それを上でプログラム書いていた。
+
+・「予定が更新でき、候補が追加できる」というテストを追加します。
+test/test.js を以下のように実装できます。
+「コメントが更新できる」のテストの後に「予定が更新でき、候補が追加できる」のテストを追記します。
+
+   });
+ });
+
++describe('/schedules/:scheduleId?edit=1', () => {
++  before(() => {
++    passportStub.install(app);
++    passportStub.login({ id: 0, username: 'testuser' });
++  });
++
++  after(() => {
++    passportStub.logout();
++    passportStub.uninstall(app);
++  });
++
++  it('予定が更新でき、候補が追加できる', (done) => {
++    User.upsert({ userId: 0, username: 'testuser' }).then(() => {
++      request(app)
++        .post('/schedules')
++        .send({ scheduleName: 'テスト更新予定1', memo: 'テスト更新メモ1', candidates: 'テスト更新候補1' })
++        .end((err, res) => {
++          const createdSchedulePath = res.headers.location;
++          const scheduleId = createdSchedulePath.split('/schedules/')[1];
++          // 更新がされることをテスト
++          request(app)
++            .post(`/schedules/${scheduleId}?edit=1`)
++            .send({ scheduleName: 'テスト更新予定2', memo: 'テスト更新メモ2', candidates: 'テスト更新候補2' })
++            .end((err, res) => {
++              Schedule.findById(scheduleId).then((s) => {
++                assert.equal(s.scheduleName, 'テスト更新予定2');
++                assert.equal(s.memo, 'テスト更新メモ2');
++              });
++              Candidate.findAll({
++                where: { scheduleId: scheduleId }
++              }).then((candidates) => {
++                assert.equal(candidates.length, 2);
++                assert.equal(candidates[0].candidateName, 'テスト更新候補1');
++                assert.equal(candidates[1].candidateName, 'テスト更新候補2');
++                deleteScheduleAggregate(scheduleId, done, err);
++              });
++            });
++        });
++    });
++  });
++});
++
+ function deleteScheduleAggregate(scheduleId, done) {
+   const promiseCommentDestroy = Comment.findAll({
+     where: { scheduleId: scheduleId }
+
+  if (!req.body.candidates) {return false;}
+  これをschedules.jsの最後の関数にいれたら予定空白でいれて出欠ボタンが出るのを回避できる
+
+・削除機能は、編集ページにつけてしまう予定でしたね。
+削除ボタンを実装して対応してしまいましょう。
+
+views/edit.jade を以下のように実装して、削除ボタンを作ってしまいましょう。
+
+       p 候補日程の追加 (改行して複数入力してください)
+       textarea(name="candidates")
+     div
+       button(type="submit") 以上の内容で予定を編集する
++  h3 危険な変更
++  form(method="post", action="/schedules/#{schedule.scheduleId}?delete=1")
++    button(type="submit") この予定を削除する
+「危険な変更」という見出しを付けて追加しました。
+
+
+・このボタンを押した時に実行される削除処理の実装もしてしまいましょう。
+routes/schedules.js を以下のように実装します。
+すでに、test/test.js において、 deleteScheduleAggregate 関数という予定に関連する情報を削除する
+関数を実装していますので、それをそのまま利用しましょう。
+
+         next(err);
+       }
+     });
++  } else if (parseInt(req.query.delete) === 1) {
++    deleteScheduleAggregate(req.params.scheduleId, () => {
++      res.redirect('/');
++    });
+   } else {
+     const err = new Error('不正なリクエストです');
+     err.status = 400;
+以上は、delete=1 というクエリが渡された時の処理を記述しています。
+deleteScheduleAggregate 関数をそのまま利用し、削除実行後、 / というルートパスにリダイレクトを行っています。
+
+・schedules.jsにさらについか
+   }
+ });
+
++function deleteScheduleAggregate(scheduleId, done, err) {
++  const promiseCommentDestroy = Comment.findAll({
++    where: { scheduleId: scheduleId }
++  }).then((comments) => {
++    return Promise.all(comments.map((c) => { return c.destroy(); }));
++  });
++
++  Availability.findAll({
++    where: { scheduleId: scheduleId }
++  }).then((availabilities) => {
++    const promises = availabilities.map((a) => { return a.destroy(); });
++    return Promise.all(promises);
++  }).then(() => {
++    return Candidate.findAll({
++      where: { scheduleId: scheduleId }
++    });
++  }).then((candidates) => {
++    const promises = candidates.map((c) => { return c.destroy(); });
++    promises.push(promiseCommentDestroy);
++    return Promise.all(promises);
++  }).then(() => {
++    return Schedule.findById(scheduleId).then((s) => { return s.destroy(); });
++  }).then(() => {
++    if (err) return done(err);
++    done();
++  });
++}
++
++router.deleteScheduleAggregate = deleteScheduleAggregate;
++
+ function createCandidatesAndRedirect(candidateNames, scheduleId, res) {
+     const candidates = candidateNames.map((c) => { return {
+       candidateName: c,
+
+・PORT=8000 npm start　　予定削除されるか確認。
+またテストの方で、先ほど Router オブジェクトに移動させた deleteScheduleAggregate 関数を利用するように修正します。
+
+・test/test.js を以下のように実装しましょう。
+
+ const Availability = require('../models/availability');
+ const Comment = require('../models/comment');
++const deleteScheduleAggregate = require('../routes/schedules').deleteScheduleAggregate;
+
+ describe('/login', () => {
+以上で関数をモジュールから呼び出し、
+
+     });
+   });
+ });
+-
+-function deleteScheduleAggregate(scheduleId, done, err) {
+-  const promiseCommentDestroy = Comment.findAll({
+-    where: { scheduleId: scheduleId }
+-  }).then((comments) => {
+-    return Promise.all(comments.map((c) => { return c.destroy(); }));
+-  });
+-
+-  Availability.findAll({
+-    where: { scheduleId: scheduleId }
+-  }).then((availabilities) => {
+-    const promises = availabilities.map((a) => { return a.destroy(); });
+-    return Promise.all(promises);
+-  }).then(() => {
+-    return Candidate.findAll({
+-      where: { scheduleId: scheduleId }
+-    });
+-  }).then((candidates) => {
+-    const promises = candidates.map((c) => { return c.destroy(); });
+-    promises.push(promiseCommentDestroy);
+-    return Promise.all(promises);
+-  }).then(() => {
+-    Schedule.findById(scheduleId).then((s) => { s.destroy(); });
+-    if (err) return done(err);
+-    done();
+-  });
+-}
+以上のように、 deleteScheduleAggregate 関数を除去します。
+
+・npm test
+DELETE FROM "availabilities"
+DELETE FROM "comments"
+DELETE FROM "candidates"
+DELETE FROM "schedules"
+以上の削除の SQL が実行されていることも確認しましょう。
+
+上の4つが消されてるtestがないよねそれは↓
+・test.jsへ
+describe('/schedules/:scheduleId?delete=1', () => {
+  before(() => {
+    passportStub.install(app);
+    passportStub.login({ id: 0, username: 'testuser' });
+  });
+
+  after(() => {
+    passportStub.logout();
+    passportStub.uninstall(app);
+  });
+
+  it('予定に関連する全ての情報が削除できる', (done) => {
+    User.upsert({ userId: 0, username: 'testuser' }).then(() => {
+      request(app)
+        .post('/schedules')
+        .send({ scheduleName: 'テスト更新予定1', memo: 'テスト更新メモ1', candidates: 'テスト更新候補1' })
+        .end((err, res) => {
+          const createdSchedulePath = res.headers.location;
+          const scheduleId = createdSchedulePath.split('/schedules/')[1];
+
+          // 出欠作成
+          const promiseAvailability = Candidate.findOne({
+            where: { scheduleId: scheduleId }
+          }).then((candidate) => {
+            return new Promise((resolve) => {
+              request(app)
+                .post(`/schedules/${scheduleId}/users/${0}/candidates/${candidate.candidateId}`)
+                .send({ availability: 2 }) // 出席に更新
+                .end((err, res) => {
+                  if (err) done(err);
+                  resolve();
+                });
+            });
+          });
+
+          // コメント作成
+          const promiseComment = new Promise((resolve) => {
+            request(app)
+              .post(`/schedules/${scheduleId}/users/${0}/comments`)
+              .send({ comment: 'testcomment' })
+              .expect('{"status":"OK","comment":"testcomment"}')
+              .end((err, res) => {
+                if (err) done(err);
+                resolve();
+              });
+          });
+
+          // 削除
+          const promiseDeleted = Promise.all([promiseAvailability, promiseComment]).then(() => {
+            return new Promise((resolve) => {
+              request(app)
+                .post(`/schedules/${scheduleId}?delete=1`)
+                .end((err, res) => {
+                  if (err) done(err);
+                  resolve();
+                });
+            });
+          });
+
+          // テスト
+          promiseDeleted.then(() => {
+            const p1 = Comment.findAll({
+              where: { scheduleId: scheduleId }
+            }).then((comments) => {
+              assert.equal(comments.length, 0);
+            });
+            const p2 = Availability.findAll({
+              where: { scheduleId: scheduleId }
+            }).then((availabilities) => {
+              assert.equal(availabilities.length, 0);
+            });
+            const p3 = Candidate.findAll({
+              where: { scheduleId: scheduleId }
+            }).then((candidates) => {
+              assert.equal(candidates.length, 0);
+            });
+            const p4 = Schedule.findById(scheduleId).then((schedule) => {
+              assert.equal(!schedule, true);
+            });
+            Promise.all([p1, p2, p3, p4]).then(() => {
+              if (err) return done(err);
+              done();
+            });
+          });
+        });
+    });
+  });
+});
+
+・すでに全ての機能要件を実装することができました。
+今回は見た目のデザインをを良くしていきましょう。
+Bootstrapをつかっていく。
+
+var a = {title: 'タイトル', print: function(){ console.log(this.title); }};
+a.print();
+この場合のthisはaを表す。　
+
+function printGlobal(){ console.log(this); }
+printGlobal();
+この場合はグローバルオブジェクトがとれるwindow～いっぱいある。
+
+・npm install bootstrap@3.3.6 --save
+組み込みを行います。
+まず、 app/entry.js を以下のように実装しましょう。
+
+ 'use strict';
+ const $ = require('jquery');
++const global = Function('return this;')();
++global.jQuery = $;
++const bootstrap = require('bootstrap');
+
+ $('.availability-toggle-button').e
+
+この処理では、グローバルオブジェクトの jQuery というプロパティに jQuery を代入しています。
+これを行わないと Bootstrap が jQuery を利用できないためです。
+BootstrapのグローバルオブジェクトにjQueryがあるからつかいない。
+
+大文字のFunctionは特殊な宣言の仕方で文字列を返す。();で実行して、return thisに
+"文字列globalオブジェクト"が入りそれをglobal変数へ入れる。
+
+
+・次に、 views/layout.jade を以下のように編集して、 Bootstrap に対応させてしまいます。
+
+ doctype html
+ html
+   head
+-    title= title
+-    link(rel='stylesheet', href='/stylesheets/style.css')
++    title 予定調整くん
++    meta(charset="utf-8")
++    meta(http-equiv="X-UA-Compatible" content="IE=edge")
++    meta(name="viewport" content="width=device-width, initial-scale=1")
++    link(rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous")
++    link(rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous")
+   body
+-    block content
++    div(class="container")
++      block content
+     script(src="/javascripts/bundle.js")
+過去 Bootstrap を利用した時と同じ設定で、 Bootstrap の CSS を読み込んでいます。
+また title も、 「予定調整くん」で固定してしまいました。
+
+なお、 block content で継承元で呼び出されるテンプレートを div(class="container") の中に含めるようにしています。
+これは Bootstrap のための設定のひとつとなります。
+
+node_modules/.bin/webpack
+PORT=8080 npm start
+
+さらに 1 つずつテンプレートを改修して、見栄えを良くしていきましょう。
+views ディレクトリの中には、 7 つのテンプレートがあります。
+
+layout.jade
+index.jade
+login.jade
+new.jade
+edit.jade
+schedule.jade
+error.jade
+なお error.jade だけは、特に機能を提供していないのでこのたび変更はしません。
+
+・Navbar の設置 layout.jade
+せっかくなので、全てのページでログイン、ログアウトのバーを表示させましょう。
+views/layout.jade を以下のように変更します。
+
+     link(rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFf
+     link(rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9Ea
+   body
++    nav(class="navbar navbar-default")
++      div(class="navbar-header")
++        a(class="navbar-brand" href="/") 予定調整くん
++      div(class="container-fluid")
++        ul(class="nav navbar-nav navbar-right")
++          if user
++            li
++              a(href="/logout") #{user.username} をログアウト
++          else
++            li
++              a(href="/login") ログイン
+     div(class="container")
+       block content
+     script(src="/javascripts/bundle.js")
+
+※日本語リファレンス　bootstrapを参照。
+
+・トップページには、Jumbotron というタイトルと説明を表示させる部品を利用してみましょう。
+また、 class を割り当てて表やボタンの見栄えを良くします。
+view/index.jade を下記のように変更しましょう。
+ extends layout
+
+ block content
+-  h1= title
+-  p Welcome to #{title}
+-  div
+-    if user
+-      div
+-        a(href="/logout") #{user.username} をログアウト
+-      div
+-        a(href="/schedules/new") 予定を作る
+-      - var hasSchedule = schedules.length > 0
+-      if hasSchedule
+-        h3 あなたの作った予定一覧
+-        table(class="table")
++  div(class="jumbotron")
++    h1 予定調整くん
++    p 予定調整くんは、GitHubで認証でき、予定を作って出欠が取れるサービスです
++  if user
++    div
++      a(class="btn btn-info" href="/schedules/new") 予定を作る
++    - var hasSchedule = schedules.length > 0
++    if hasSchedule
++      h3 あなたの作った予定一覧
++      table(class="table")
++        tr
++          th 予定名
++          th 更新日時
++        each schedule in schedules
+           tr
+-            th 予定名
+-            th 更新日時
+-          each schedule in schedules
+-            tr
+-              td
+-                a(href="/schedules/#{schedule.scheduleId}") #{schedule.scheduleName}
+-              td #{schedule.updatedAt}
+-    else
+-      div
+-        a(href="/login") ログイン
++            td
++              a(href="/schedules/#{schedule.scheduleId}") #{schedule.scheduleName}
++            td #{schedule.updatedAt}
+
+・ログインページの編集
+views/login.jade を以下のように編集します。
+ extends layout
+
+ block content
+-  a(href="/auth/github") GitHubでログイン
+-  if user
+-     p 現在 #{user.username} でログイン中
++  a(class="btn btn-info" href="/auth/github") GitHubでログイン
+
+・Bootstrap でフォームにデザインを適用する場合には、 
+label 要素を用いたり、 labal 要素と input 要素を対応付ける必要性がありました。
+以下のように views/new.jade を変更します。
+
+ block content
+   form(method="post", action="/schedules")
+-    div
+-      h5 予定名
+-      input(type="text" name="scheduleName")
+-    div
+-      h5 メモ
+-      textarea(name="memo")
+-    div
+-      h5 候補日程 (改行して複数入力してください)
+-      textarea(name="candidates")
+-    button(type="submit") 予定をつくる
++    div(class="form-group")
++      label(for="scheduleName") 予定名
++      input(id="scheduleName" class="form-control" type="text" name="scheduleName")
++    div(class="form-group")
++      label(for="memo") メモ
++      textarea(id="memo" class="form-control" name="memo")
++    div(class="form-group")
++      label(for="candidates") 候補日程 (改行して複数入力してください)
++      textarea(id="candidates" class="form-control" name="candidates")
++    button(class="btn btn-info" type="submit") 予定をつくる
+\ No newline at end of file
+
+
+・編集ページでも似たように Bootstrap のフォームのデザインの適用を行います。
+views/edit.jade を以下のように変更しましょう。
+
+ block content
+   h3 予定の編集
+   form(method="post", action="/schedules/#{schedule.scheduleId}?edit=1")
+-    div
+-      h5 予定名
+-      input(type="text" name="scheduleName" value="#{schedule.scheduleName}")
+-    div
+-      h5 メモ
+-      textarea(name="memo") #{schedule.memo}
+-    div
+-      label 既存の候補日程
+-      ul
++    div(class="form-group")
++      label(for="scheduleName") 予定名
++      input(id="scheduleName" class="form-control" type="text" name="scheduleName" value="#{schedule.scheduleName}")
++    div(class="form-group")
++      label(for="memo") メモ
++      textarea(id="memo" class="form-control" name="memo") #{schedule.memo}
++    div(class="form-group")
++      label 既存の日程候補
++      ul(class="list-group")
+         each candidate in candidates
+-          li #{candidate.candidateName}
+-      p 候補日程の追加 (改行して複数入力してください)
+-      textarea(name="candidates")
++          li(class="list-group-item") #{candidate.candidateName}
++      label(for="candidates") 候補日程の追加 (改行して複数入力してください)
++      textarea(id="candidates" class="form-control" name="candidates")
+     div
+-      button(type="submit") 以上の内容で予定を編集する
++      button(class="btn btn-info" type="submit") 以上の内容で予定を編集する
+   h3 危険な変更
+   form(method="post", action="/schedules/#{schedule.scheduleId}?delete=1")
+-    button(type="submit") この予定を削除する
++    button(class="btn btn-danger" type="submit") この予定を削除する
+\ No newline at end of file
+ちょっと工夫したところとしては、予定を消す際のボタンには、 btn-danger という class を
+適用することで、注意を喚起しています。
+
+※ちょっと重要　あまり関係ないが↓は　candidatesの配列をcandidate分ぐるぐる回す
+         each candidate in candidates
+
+
+・最後にこの「予定調整くん」の中心的な機能である、予定表示ページの出欠表のデザインの見た目を良くしていきます。
+views/schedule.jade を以下のように修正していきます。
+ extends layout
+
+ block content
+-  h4 #{schedule.scheduleName}
+-  p(style="white-space:pre;") #{schedule.memo}
+-  p 作成者: #{schedule.user.username}
++  div(class="panel panel-info")
++    div(class="panel-heading")
++      h4 #{schedule.scheduleName}
++    div(class="panel-body")
++      p(style="white-space:pre;") #{schedule.memo}
++    div(class="panel-footer")
++      p 作成者: #{schedule.user.username}
+   - var isMine = parseInt(user.id) === schedule.user.userId
+   if isMine
+     div
+-      a(href="/schedules/#{schedule.scheduleId}/edit") この予定を編集する
++      a(class="btn btn-info" href="/schedules/#{schedule.scheduleId}/edit") この予定を編集する
+   h3 出欠表
+-  table
++  table(class="table table-bordered")
+     tr
+       th 予定
+       each user in users
+@@ -20,24 +24,29 @@ block content
+         each user in users
+           - var availability = availabilityMapMap.get(user.userId).get(candidate.candidateId)
+           - var availabilityLabels = ['欠', '？', '出'];
+-          td
++          - var buttonStyles = ['btn-danger', 'btn-default', 'btn-success'];
++          - var tdAvailabilityClasses = ['bg-danger', 'bg-default', 'bg-success'];
++          td(class="#{tdAvailabilityClasses[availability]}")
+             if user.isSelf
+-              button(class="availability-toggle-button"
++              button(class="availability-toggle-button btn-lg #{buttonStyles[availability]}"
+                 data-schedule-id="#{schedule.scheduleId}"
+                 data-user-id="#{user.userId}"
+                 data-candidate-id="#{candidate.candidateId}"
+                 data-availability="#{availability}") #{availabilityLabels[availability]}
+             else
+-              p #{availabilityLabels[availability]}
++              h3 #{availabilityLabels[availability]}
+     tr
+       th コメント
+       each user in users
+         if user.isSelf
+           td
+-            p(id="self-comment") #{commentMap.get(user.userId)}
+-            button(id="self-comment-button"
++            p
++              small(id="self-comment") #{commentMap.get(user.userId)}
++            button(class="btn-xs btn-info"
++              id="self-comment-button"
+               data-schedule-id="#{schedule.scheduleId}"
+               data-user-id="#{user.userId}") 編集
+         else
+           td
+-            p #{commentMap.get(user.userId)}
++            p
++              small #{commentMap.get(user.userId)}
+予定の内容の表示に、Panel という部品を使ってみました。
+また、['欠', '？', '出'] だけのラベルではなく、表のセルの背景色やボタンの色も変えるようにしています。
+
+・app/entry.js を以下のように編集しましょう。
+
+         button.data('availability', data.availability);
+         const availabilityLabels = ['欠', '？', '出'];
+         button.text(availabilityLabels[data.availability]);
++
++        const buttonStyles = ['btn-danger', 'btn-default', 'btn-success'];
++        button.removeClass('btn-danger btn-default btn-success');
++        button.addClass(buttonStyles[data.availability]);
++
++        const tdAvailabilityClasses = ['bg-danger', 'bg-default', 'bg-success'];
++        button.parent().removeClass('bg-danger bg-default bg-success');
++        button.parent().addClass(tdAvailabilityClasses[data.availability]);
+       });
+   });
+ });
+以上の実装では、ボタンとセルのスタイルを全て取り除き、新たに追加する実装を加えています。
+また、jQuery オブジェクトは、 parent 関数を呼ぶことで、その親の要素を呼ぶことができるため、その機能をここでは利用しています。
+
+Ctrl + c でサーバーを止め、
+node_modules/.bin/webpack
+PORT=8000 npm start
+以上のコマンドで JavaScript を出力して、サーバーを起動します。
+そして出欠を変更した際に、正しくボタンやセルの背景色の色が変わるかを確かめてみてください。
+デザイン終了。
+
+・最後にセキュリティについて。
+
+脆弱性	影響	内容
+OS コマンド・インジェクション	大	任意の OS のコマンドを実行できてしまう
+SQL インジェクション	大	任意の SQL というデータベースを操作するコマンドを実行できてしまう
+ディレクトリ・トラバーサル	大	任意のファイルを閲覧、操作できてしまう
+セッションハイジャック	大	利用者のセッションが乗っ取られてしまう
+クロスサイト・スクリプティング (XSS)	中	スクリプトにより Web サイトの改ざんができてしまう
+クロスサイト・リクエストフォージェリ (CSRF)	中	利用者の意図しない操作がされてしまう
+HTTP ヘッダインジェクション	中	偽ページの表示などができてしまう
+クリックジャッキング	小	利用者の意図しないクリックをしてしまう
+
+脆弱性の一覧はこのようなものでした。
+なお、ユーザーのアカウント管理は、今回のサービスでは GitHub 認証を利用しているため、考える必要はありません。
+
+「OS コマンド・インジェクション」は、 OS コマンドを実行している部分がないため、大丈夫でしょう。
+
+「SQL インジェクション」も、今回は SQL をプログラム内の文字列として直接実行することはなく、
+必ず sequelize を利用してデータベースの操作を行っていますので関係ありません。
+
+「ディレクトリ・トラバーサル」は、 Express の Router オブジェクトを介してルーティングをしているため問題なさそうです。
+
+「セッションハイジャック」ですが、
+今回は Express の session の仕組みをそのまま利用して実装しています。
+したがって、これらの脆弱性には十分に気をつける必要がありますが、今対応が必要なものはありません。
+
+「クロスサイト・スクリプティング」についてですが、今回は jade テンプレートを使用して HTML を描画しています。
+そして、エスケープを無視して表示を行っている部分はないはずです。
+
+「クロスサイト・リクエストフォージェリ」は、現時点の実装では脆弱性として存在しています。
+
+予定作成フォーム
+予定編集フォーム
+予定削除フォーム
+これらの実装で使用しているフォームで、突かれてしまう作りになっています。
+ですので、これは絶対対策しなくてはいけません。
+
+「HTTP ヘッダインジェクション」は、 Cookie の内容を直接使用したり、
+自身で URL 全体を受け付けるリダイレクト機能を用意していないので大丈夫でしょう。
+
+「クリックジャッキング」は、実はすでにここまでの実装で対策がされています。
+詳しく言うと、 Express の標準の設定で、レスポンスヘッダに X-Frame-Options:SAMEORIGIN という内容が含まれています。
+このヘッダがあることで HTML の iframe 要素の機能により外部サイトからアクセスできないよう対策されています。
+
+なお、レスポンスヘッダの X-Frame-Options は、 HTML におけるフレームという HTML 内に HTML を読み込む機能において、どのようなサイトからの読み込みを許可するかという設定です。
+
+このヘッダに対して、クリックジャッキングを防ぐために、同じサイト内からの読み込みだけしか許可しない SAMEORIGIN を設定しているわけです。
+
+以上を踏まえると、今回は CSRF 脆弱性対策だけを行う必要がありそうです。
+
+・Express フレームワークでは、簡単に CSRF 脆弱性対策を行うことができます。
+
+今回は、csurf というミドルウェアをインストールして対策します。
+
+まずはインストールを行います。
+
+npm install csurf@1.8.3 --save
+あとは csurf の README.md に記載されている内容を元に、 routes/schedule.js を以下のように実装しましょう。
+
+ const User = require('../models/user');
+ const Availability = require('../models/availability');
+ const Comment = require('../models/comment');
++const csrf = require('csurf');
++const csrfProtection = csrf({ cookie: true });
+
+-router.get('/new', authenticationEnsurer, (req, res, next) => {
+-  res.render('new', { user: req.user });
++router.get('/new', authenticationEnsurer, csrfProtection, (req, res, next) => {
++  res.render('new', { user: req.user, csrfToken: req.csrfToken() });
+ });
+
+-router.post('/', authenticationEnsurer, (req, res, next) => {
++router.post('/', authenticationEnsurer, csrfProtection, (req, res, next) => {
+   const scheduleId = uuid.v4();
+   const updatedAt = new Date();
+   Schedule.create({
+
+ワンタイムトークン的なものをいれていく↑
+また POST リクエスト時には、 csrfProtection 関数を Router オブジェクトに足すことで、
+チェックが行われるようにしています。
+
+});
+
+-router.get('/:scheduleId/edit', authenticationEnsurer, (req, res, next) => {
++router.get('/:scheduleId/edit', authenticationEnsurer, csrfProtection, (req, res, next) => {
+   Schedule.findOne({
+     where: {
+       scheduleId: req.params.scheduleId
+     }
+   }).then((schedule) => {
+     if (isMine(req, schedule)) { // 作成者のみが編集フォームを開ける
+       Candidate.findAll({
+         where: { scheduleId: schedule.scheduleId },
+         order: '"candidateId" ASC'
+       }).then((candidates) => {
+         res.render('edit', {
+           user: req.user,
+           schedule: schedule,
+-          candidates: candidates
++          candidates: candidates,
++          csrfToken: req.csrfToken()
+         });
+       });
+     } else {
+と
+
+   return schedule && parseInt(schedule.createdBy) === parseInt(req.user.id);
+ }
+
+-router.post('/:scheduleId', authenticationEnsurer, (req, res, next) => {
++router.post('/:scheduleId', authenticationEnsurer, csrfProtection, (req, res, next) => {
+   if (parseInt(req.query.edit) === 1) {
+     Schedule.findOne({
+       where: {
+以上の部分にも同様の実装をしています。
+編集と削除時のフォームの表示の時には、 CSRF 対策のトークンを渡し、 POST リクエスト時にチェックするようにしています。
+
+・PORT=8080 npm start　ログインして予定テスト
+シーサーフトークンを送っていないからエラーがでる　403エラー。
+
+予定の作成
+予定の編集
+予定の削除
+ができない⇒できるようにするために
+・では今度は、作成フォームと編集フォームと削除フォームのそれぞれにトークンを埋め込んで、
+ちゃんと POST リクエストが成功するようにしてみましょう。
+
+views/new.jade を以下のように編集します。
+
+ block content
+   form(method="post", action="/schedules")
++    input(type="hidden" name="_csrf" value!="#{csrfToken}")
+     div(class="form-group")
+       label(for="scheduleName") 予定名
+       input(id="scheduleName" class="form-control" type="text" name="scheduleName")
+
+そして、 views/edit.jade にも以下の行を追加しましょう。
+ block content
+   h3 予定の編集
+   form(method="post", action="/schedules/#{schedule.scheduleId}?edit=1")
++    input(type="hidden" name="_csrf" value!="#{csrfToken}")
+     div(class="form-group")
+       label(for="scheduleName") 予定名
+       input(id="scheduleName" class="form-control" type="text" name="scheduleName" value="#{schedule.scheduleName}")
+と
+
+       button(class="btn btn-info" type="submit") 以上の内容で予定を編集する
+   h3 危険な変更
+   form(method="post", action="/schedules/#{schedule.scheduleId}?delete=1")
++    input(type="hidden" name="_csrf" value!="#{csrfToken}")
+     button(class="btn btn-danger" type="submit") この予定を削除する
+それぞれ、 _csrf というキーで一緒に POST されるようにしています。
+これが csurf モジュールの使い方となっています。
+
+実装ができたら
+・PORT=8080 npm start　テスト
+
+・あとは Heroku にアップロードできるようにして公開してしまいたいところですが、
+ちょっと不便な部分があるので、ひとつ機能を追加しましょう。
+現在の実装で
+http://localhost:8000/schedules/29e8ff4e-6a44-4274-807f-e2999d9c8b72
+このような出欠表の URL にアクセスして、 GitHub 認証がされていなかった場合を考えます。
+未ログインなので /login のログインページにリダイレクトされますね。
+そして、その後ログインをすると、
+http://localhost:8000/
+に飛ばされてしまいます。もともとアクセスしたかった
+http://localhost:8000/schedules/29e8ff4e-6a44-4274-807f-e2999d9c8b72
+という URL の情報が失われてしまうのです。
+これはとても不便です。また URL を入力しなくてはいけません。
+これを修正し、ログインの直後にもともとの URL に戻れるように実装しましょう。
+実装方法としては、ログインページのクエリにリダイレクトしたいパスを含められるようにし、
+一旦 Cookie にログイン後の戻り先を覚えさせて対応します。
+
+まず、 routes/authendication-ensurer.js を以下のように実装します。
+
+ function ensure(req, res, next) {
+   if (req.isAuthenticated()) { return next(); }
+-  res.redirect('/login');
++  res.redirect('/login?from=' + req.originalUrl);
+ }
+認証がうまく行かなかった際に、どこにアクセスしようとしたかを、 /login のクエリに含めた形でリダイレクトしています。
+
+次に、 routes/login.js を以下のように実装します。
+
+ const router = express.Router();
+
+ router.get('/', (req, res, next) => {
+-  res.render('login', { user: req.user });
++  const from = req.query.from;
++  if (from) {
++    res.cookie('loginFrom', from, { expires: new Date(Date.now() + 600000)});
++  }
++  res.render('login');
+ });
+ログインページ表示時に、どこからログインしようとしたかを、保存期間を 10 分として Cookie に保存してから、
+ログインページを描画するようにしました。
+
+そして最後、 app.js を以下のように実装します。
+
+ app.get('/auth/github/callback',
+   passport.authenticate('github', { failureRedirect: '/login' }),
+   function (req, res) {
+-    res.redirect('/');
++    var loginFrom = req.cookies.loginFrom;
++    // オープンリダイレクタ脆弱性対策
++    if (loginFrom &&
++     loginFrom.indexOf('http://') < 0 &&
++     loginFrom.indexOf('https://') < 0) {
++      res.clearCookie('loginFrom');
++      res.redirect(loginFrom);
++    } else {
++      res.redirect('/');
++    }
+   });
+認証が終わったらこれまでは / のルートパスにリダイレクトしていましたが、
+それを Cookie で保存された値の URL のパスにリダイレクトするようにします。
+なお Cookie の値はユーザーが自由に編集できるのでした。自由に入力ができる部分には脆弱性が生まれがちで、
+実際にこのような状況で発生するオープンリダイレクタ脆弱性というものがあります。
+そこで、ここではオープンリダイレクタ脆弱性に対処すべく、 
+http:// か https:// ではじまる URL でしかリダイレクトを実施しないように対策しています。
+外部サイトに勝手にリダイレクトさせ、信用あるページであるように見せるような脆弱性が、これで未然に防止されます。
+では、実装ができたら Ctrl + c でサーバーを終了させて、
+PORT=8080 npm start
+でテスト。
+
+・Herokuへ公開
+最後は Heroku への公開です。Heroku の操作は第3章で何度か行っていますが、忘れてしまった方は復習しておきましょう。
+
+まずは app.json を作成しましょう。
+
+touch app.json
+以上でファイルを作成して、 app.json を以下のように実装します。
+
+{
+  "name": "schedule-arranger",
+  "description": "予定調整くん",
+  "logo": "",
+  "keywords": ["node"],
+  "image": "heroku/nodejs"
+}
+・次に、 package.json を編集し、 Heroku で使う Node.js のバージョンを記述します。
+
+     "passport-stub": "^1.1.1",
+     "supertest": "^1.2.0",
+     "webpack": "^2.3.2"
+-  }
++  },
++  "engines": {
++    "node": "6.11.1"
++   }
+ }
+さらに、 Heroku のデータベースを使えるようにいくつか変更を加えておきます。
+
+・　※models/sequelize-loader.js を以下のように実装して、 Heroku のデータベースも使えるようにします。
+ 'use strict';
+ const Sequelize = require('sequelize');
+ const sequelize = new Sequelize(
+-  'postgres://postgres:postgres@localhost/schedule_arranger',
++  process.env.DATABASE_URL || 'postgres://postgres:postgres@localhost/schedule_arranger',
+   { logging: true });
+
+ module.exports = {
+一旦この時点で Heroku にアプリケーションを作り、アップロードをしてしまいましょう。
+・まずは Git のリポジトリにコミットしてしまいます。
+
+git add .
+git commit -am "Heroku対応"
+次に、Heroku コマンドでサーバーやデータベースの作成を行います。
+
+heroku login
+以上のコマンドの後にメールアドレスとパスワードを入力して Heroku にログインします。
+
+Logged in as soichiro_yoshimura@dwango.co.jp
+のように表示されればログイン成功です。
+次は、
+
+heroku create
+と入力して、 Heroku のサーバーを作成します。
+・最後に作成されたサーバーの URL が表示されると思います。
+この URL をメモしておきましょう。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
