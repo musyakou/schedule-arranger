@@ -6,35 +6,65 @@ Web アプリケーション　作成について　参考ディレクトリ　~
 
 　用語定義　周知
 　　ユーザー: user
-　　予定: schedule...等
+　　予定: schedule
+　　候補:candidate
+　　出欠:availability
+　　コメント:comment
 
 ・RDBのエンティティ　データモデルを考える
   ユーザーに対し予定は"1対多"等　リレーションシップの図の様に。
 
-・URI設計
+・URL設計
 　{トップページ, 作った予定の一覧表示ページ, 作成ページ, 出欠表ページ, コメントページ等}
 ...AJAXを採用　少しの通信で良い。　⇒websocket程の通信はいらない。
-パス　メソッド
-  /　 GET   トップページ
-　/schedules/new   GET   
-　/schedules/:scheduleId
-  /logout 等
+/	GET	トップ/自分が作った予定の一覧表示ページ
+/schedules/new	GET	予定作成ページ
+/schedules/:scheduleId	GET	予定表示/出欠表/コメントページ
+/schedules/:scheduleId/edit	GET	予定編集ページ
+/login	GET	ログイン
+/logout	GET	ログアウト
 
-  APIのURI
-  /schedules  POST
-  /schedules/:scheduleId?delete=1 logoutのリクエストをAJAXで
+  APIのURL
+パス	メソッド	処理内容	利用方法
+/schedules	POST	予定作成	フォーム
+/schedules/:scheduleId?edit=1	POST	予定編集	フォーム
+/schedules/:scheduleId?delete=1	POST	予定削除	フォーム
+/schedules/:scheduleId/users/:userId/candidates/:candidateId	POST	出欠編集	AJAX
+/schedules/:scheduleId/users/:userId/comments	POST	コメント編集	AJAX
+  たとえば logoutのリクエストをAJAXで
 　表示はしないイメージPOSTでデータを投げる。
+なおここに登場する :userId は、ユーザーエンティティの主キー、 /:candidateId は候補エンティティの主キーとします。
+
+※Ajaxが　文字列とかのデータを投げるPOSTという人を丸々　ぶん投げる、リクエストをするGETもなげることできる。
+
+今回のページ↓.AJAXを採用
+トップ/自分が作った予定の一覧表示ページ
+予定表示/出欠表/コメントページ
+予定作成ページ
+予定編集ページ
 
 ーーここまでインターフェイス設計ーー
 
 ・モジュール設計
-　/routes/logout.js
- /etc..etc
+ファイル名	責務
+routes/login.js	ログイン処理
+routes/logout.js	ログアウト処理
+routes/schedules.js	予定に関連する処理
+routes/availabilities.js	出欠の更新に関する処理
+routes/comments.js	コメントの更新に関する処理
 
 　データモデル一覧
-M　モデル　modules/user.js 　　ユーザーの定義永続化、RDB postgresとシンクアライズで行う。
-V　eiws   これはモデルに依存していてテンプレートエンジン(jade)の編集をしてもモデルは編集する必要なし。
-C　コントロール　フレームワークexpress
+M　モデル　modules/user.js 　データの管理。　　ユーザーの定義永続化、RDB postgresとシンクアライズで行う。
+V　eiws  描画。 これはモデルに依存していてテンプレートエンジン(jade)の編集をしてもモデルは編集する必要なし。
+C　コントローラー制御。ロジック。　フレームワークexpress
+
+・データモデル一覧　　これもモジュール　データベース管理。
+ファイル名	責務
+models/user.js	ユーザーの定義と永続化
+models/schedule.js	予定の定義と永続化
+models/candidate.js	候補の定義と永続化
+models/availabilitiy.js	出欠の定義と永続化
+models/comment.js	コメントの定義と永続化
 
 ~~webアプリケーションの公開
 　　Herokuへアップしていく(vps等)
@@ -3022,8 +3052,15 @@ remote: Verifying deploy... done.
 これらがちゃんと動作するかを試してみましょう。
 この検証が終われば「予定調整くん」は完成です。
 
+・リリースの前に脆弱性に対して問題がないかチェックする
+クリックジャッキングの対策には、 X-Frame-Options:SAMEORIGIN というレスポンスヘッダを含めて対策する
+express フレームワークでは csurf を利用することで、CSRF 脆弱性対策が容易になる
+Heroku の環境変数を使うことで、環境の設定値を Web サービスに適用することができる
 
+終了～
+この先
 
-
+コードを読む　書く　改変する。
+セキュリティも。
 
 
